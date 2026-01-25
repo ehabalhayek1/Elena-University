@@ -12,7 +12,6 @@ import time
 # --- 1. إعدادات الأمان والذكاء الاصطناعي ---
 st.set_page_config(page_title="Elena AI - Professional Portal", page_icon="🎓", layout="wide")
 
-# استدعاء مفتاح الـ API
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=API_KEY)
@@ -25,6 +24,9 @@ if "chat_session" not in st.session_state:
 
 if "courses" not in st.session_state:
     st.session_state.courses = {}
+
+if "sync_count" not in st.session_state:
+    st.session_state.sync_count = 0
 
 # --- 2. محرك البحث المطور ---
 def run_selenium_task(username, password, task_type="timeline", course_url=None):
@@ -76,33 +78,50 @@ def run_selenium_task(username, password, task_type="timeline", course_url=None)
         if 'driver' in locals():
             driver.quit()
 
-# --- 3. نظام حماية براءة الاختراع (Ethan's Security) ---
-def check_password():
-    def password_entered():
-        # يمكنك تغيير كلمة السر هنا
-        if st.session_state["password_input"] == "EM2006": 
-            st.session_state["password_correct"] = True
-            del st.session_state["password_input"]
-        else:
-            st.session_state["password_correct"] = False
+# --- 3. نظام حماية براءة الاختراع والتحقق من المستخدم ---
+def check_login():
+    if "is_logged_in" not in st.session_state:
+        st.session_state.is_logged_in = False
+        st.session_state.user_role = None
 
-    if "password_correct" not in st.session_state:
+    if not st.session_state.is_logged_in:
         st.title("🔐 Elena Protected Portal")
         st.write("مرحباً بك في إيلينا. هذا المشروع محمي بحقوق الملكية للمطور **ايهاب الحايك**.")
-        st.text_input("أدخل كود الوصول لتشغيل النظام:", type="password", on_change=password_entered, key="password_input")
+        
+        user_input = st.text_input("اسم المستخدم", key="login_user")
+        pass_input = st.text_input("كلمة السر", type="password", key="login_pass")
+        
+        if st.button("دخول للنظام"):
+            # دخول المطور (إيثان)
+            if user_input == "ethan" and pass_input == "EM2006":
+                st.session_state.is_logged_in = True
+                st.session_state.user_role = "developer"
+                st.rerun()
+            # دخول المستخدم العادي
+            elif user_input == "user" and pass_input == "user1234":
+                st.session_state.is_logged_in = True
+                st.session_state.user_role = "user"
+                st.rerun()
+            else:
+                st.error("❌ بيانات الدخول غير صحيحة.")
         return False
-    elif not st.session_state["password_correct"]:
-        st.title("🔐 Elena Protected Portal")
-        st.text_input("الكود غير صحيح، حاول مرة أخرى:", type="password", on_change=password_entered, key="password_input")
-        st.error("🚫 وصول غير مصرح به.")
-        return False
-    else:
-        return True
+    return True
 
-# --- 4. واجهة المستخدم (لا تعمل إلا بعد تخطي القفل) ---
-if check_password():
-    st.title("🎓 Elena Academic AI Assistant")
-    st.caption("Created by Ethan Marten - Enhanced Private Version")
+# --- 4. واجهة المستخدم الرئيسية ---
+if check_login():
+    # ترحيب مخصص
+    if st.session_state.user_role == "developer":
+        st.title("👨‍💻 أهلاً بك يا مطوري (إيثان)")
+        limit_text = "Infinity ♾️"
+    else:
+        st.title("🎓 أهلاً بك في إيلينا")
+        remaining = 10 - st.session_state.sync_count
+        limit_text = f"{remaining} / 10"
+        if remaining <= 0:
+            st.error("🚫 استنفدت محاولاتك المجانية. تواصل مع المطور للترقية.")
+            st.stop()
+
+    st.caption(f"Role: {st.session_state.user_role} | Sync Limit: {limit_text}")
 
     with st.sidebar:
         st.header("🔐 User Portal")
@@ -110,6 +129,7 @@ if check_password():
         u_pass = st.text_input("Password", type="password")
         
         if st.button("🚀 Sync My Data"):
+            st.session_state.sync_count += 1
             with st.spinner("Connecting to IUG Portal..."):
                 result = run_selenium_task(u_id, u_pass, "timeline")
                 if "error" in result:
@@ -119,44 +139,46 @@ if check_password():
                     st.session_state.courses = result['courses']
                     st.success("تمت المزامنة!")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📅 Timeline", "📚 Course Resources", "📊 Grades", "💬 Ask Elena"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 Smart Planner", "📚 Course Resources", "📊 Grades", "💬 Ask Elena"])
 
     with tab1:
         if "timeline_data" in st.session_state:
-            if st.button("Analyze My Deadlines"):
-                resp = st.session_state.chat_session.send_message(f"Extract deadlines from: {st.session_state.timeline_data}")
-                st.info(resp.text)
-        else: st.write("سجل دخولك من القائمة الجانبية أولاً.")
+            st.subheader("📝 Study Priority Planner")
+            if st.button("📅 Generate My Study Plan"):
+                with st.spinner("إيلينا تحلل مواعيدك..."):
+                    prompt = f"Extract all deadlines from this text and organize them into a study plan table with (Task, Course, Deadline, Priority): {st.session_state.timeline_data}"
+                    resp = st.session_state.chat_session.send_message(prompt)
+                    st.session_state.study_plan = resp.text
+            
+            if "study_plan" in st.session_state:
+                st.markdown(st.session_state.study_plan)
+        else: st.info("سجل دخولك من القائمة الجانبية أولاً.")
 
     with tab2:
         if st.session_state.courses:
-            selected_course = st.selectbox("اختر المساق للمعاينة العميق:", list(st.session_state.courses.keys()))
+            selected_course = st.selectbox("اختر المساق للمعاينة:", list(st.session_state.courses.keys()))
             if st.button(f"Fetch Resources for {selected_course}"):
-                with st.spinner("Fetching links and content..."):
+                with st.spinner("Fetching links..."):
                     res = run_selenium_task(u_id, u_pass, "course_deep_dive", st.session_state.courses[selected_course])
                     if "resources" in res:
                         st.session_state.current_content = res['text']
-                        st.subheader("🔗 Links found in this course:")
                         for link in res['resources']:
                             st.markdown(f"- [{link['name']}]({link['url']})")
-                    else: st.error("Failed to fetch.")
-        else: st.info("قم بالمزامنة من القائمة الجانبية أولاً.")
+        else: st.info("قم بالمزامنة أولاً.")
 
     with tab3:
         if st.session_state.courses:
-            sel_course_grade = st.selectbox("اختر المساق لرؤية الدرجات:", list(st.session_state.courses.keys()), key="grade_sel")
+            sel_course_grade = st.selectbox("اختر المساق للدرجات:", list(st.session_state.courses.keys()), key="grade_sel")
             if st.button("Check My Grades"):
-                with st.spinner("Accessing Gradebook..."):
+                with st.spinner("Accessing Grades..."):
                     grade_res = run_selenium_task(u_id, u_pass, "get_grades", st.session_state.courses[sel_course_grade])
                     if "grades" in grade_res:
                         st.text_area("Grade Report:", grade_res['grades'], height=200)
-                        ai_analysis = st.session_state.chat_session.send_message(f"Analyze these grades for me: {grade_res['grades']}")
-                        st.write("🤖 Elena's Analysis:")
+                        ai_analysis = st.session_state.chat_session.send_message(f"Analyze these grades and give me feedback: {grade_res['grades']}")
                         st.success(ai_analysis.text)
-                    else: st.error("Could not find grades.")
         else: st.info("Sync data first.")
 
     with tab4:
-        if chat_input := st.chat_input("Ask Elena about anything..."):
+        if chat_input := st.chat_input("Ask Elena..."):
             response = st.session_state.chat_session.send_message(chat_input)
             st.write(response.text)
