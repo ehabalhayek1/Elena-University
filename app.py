@@ -179,6 +179,7 @@ if check_login():
         else: st.info("Sync data first.")
 
     with tab4:
-        if chat_input := st.chat_input("Ask Elena..."):
+        if chat_input := st.chat_input("🤖 إيلينا الآن في وضع الذكاء الأكاديمي المتطور. يمكنك سؤالها عن أي تفاصيل في مساقاتك."):
             response = st.session_state.chat_session.send_message(chat_input)
             st.write(response.text)
+
