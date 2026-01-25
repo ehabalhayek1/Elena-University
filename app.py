@@ -12,14 +12,12 @@ import time
 # --- 1. إعدادات الأمان والذكاء الاصطناعي ---
 st.set_page_config(page_title="Elena AI - Professional Portal", page_icon="🎓", layout="wide")
 
-# استدعاء مفتاح الـ API بشكل آمن
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
     genai.configure(api_key=API_KEY)
 except:
-    st.error("⚠️ يرجى ضبط GEMINI_API_KEY في إعدادات Secrets في Streamlit Cloud")
+    st.error("⚠️ يرجى ضبط GEMINI_API_KEY في إعدادات Secrets")
 
-# تهيئة Gemini
 if "chat_session" not in st.session_state:
     model = genai.GenerativeModel("models/gemini-flash-latest")
     st.session_state.chat_session = model.start_chat(history=[])
@@ -27,48 +25,58 @@ if "chat_session" not in st.session_state:
 if "courses" not in st.session_state:
     st.session_state.courses = {}
 
-# --- 2. محرك البحث (ضبط السيرفر) ---
+# --- 2. محرك البحث المطور ---
 def run_selenium_task(username, password, task_type="timeline", course_url=None):
     options = Options()
-    options.add_argument('--headless')  # ضروري جداً للسيرفر ليعمل بدون شاشة
+    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
-    
-    # السطر السحري لحل مشكلة السيرفر: تحديد مسار الكروم يدوياً
     options.binary_location = "/usr/bin/chromium" 
     
-    # استخدام DriverManager بنوع Chromium المتوافق مع سيرفرات لينكس
     try:
         service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        # تسجيل الدخول لرابط الجامعة
+        # تسجيل الدخول
         driver.get("https://sso.iugaza.edu.ps/saml/module.php/core/loginuserpass")
         time.sleep(3)
         
-        user_input = driver.find_element(By.ID, "username")
+        driver.find_element(By.ID, "username").send_keys(username)
         pass_input = driver.find_element(By.ID, "password")
-        
-        user_input.send_keys(username)
         pass_input.send_keys(password)
         pass_input.send_keys(Keys.ENTER)
         
-        # انتظار التحميل (زدنا الوقت لضمان استقرار السيرفر)
         time.sleep(12) 
 
+        # الحالة 1: جلب المساقات والجدول الزمني
         if task_type == "timeline":
             timeline_text = driver.find_element(By.TAG_NAME, "body").text
             course_elements = driver.find_elements(By.CSS_SELECTOR, "a[href*='course/view.php?id=']")
-            # تصفية الروابط لضمان جودتها
             courses = {el.text.strip(): el.get_attribute("href") for el in course_elements if len(el.text) > 5}
             return {"text": timeline_text, "courses": courses}
 
+        # الحالة 2: الغوص العميق في المساق (جلب الروابط والمحتوى)
         elif task_type == "course_deep_dive":
             driver.get(course_url)
             time.sleep(5)
-            course_content = driver.find_element(By.TAG_NAME, "body").text
-            return {"text": course_content}
+            
+            # سحب الروابط داخل المساق
+            all_links = driver.find_elements(By.CSS_SELECTOR, "a.aalink")
+            resources = [{"name": link.text, "url": link.get_attribute("href")} for link in all_links if link.text]
+            
+            content = driver.find_element(By.TAG_NAME, "body").text
+            return {"text": content, "resources": resources}
+
+        # الحالة 3: جلب الدرجات (Grades)
+        elif task_type == "get_grades":
+            # تحويل رابط المساق لرابط الدرجات
+            grade_url = course_url.replace("course/view.php", "grade/report/user/index.php")
+            driver.get(grade_url)
+            time.sleep(5)
+            
+            grades_table = driver.find_element(By.TAG_NAME, "table").text
+            return {"grades": grades_table}
 
     except Exception as e:
         return {"error": str(e)}
@@ -78,7 +86,7 @@ def run_selenium_task(username, password, task_type="timeline", course_url=None)
 
 # --- 3. واجهة المستخدم ---
 st.title("🎓 Elena Academic AI Assistant")
-st.caption("Created by Ethan Marten")
+st.caption("Created by Ethan Marten - Enhanced with Deep Dive & Grades")
 
 with st.sidebar:
     st.header("🔐 User Portal")
@@ -86,52 +94,58 @@ with st.sidebar:
     u_pass = st.text_input("Password", type="password")
     
     if st.button("🚀 Sync My Data"):
-        if not u_id or not u_pass:
-            st.warning("يرجى إدخال البيانات أولاً")
-        else:
-            with st.spinner("Elena is connecting to IUG Portal..."):
-                result = run_selenium_task(u_id, u_pass, "timeline")
-                if "error" in result:
-                    st.error(f"خطأ في الاتصال: {result['error']}")
-                else:
-                    st.session_state.timeline_data = result['text']
-                    st.session_state.courses = result['courses']
-                    st.success("تم المزامنة بنجاح!")
+        with st.spinner("Connecting to IUG Portal..."):
+            result = run_selenium_task(u_id, u_pass, "timeline")
+            if "error" in result:
+                st.error(f"خطأ: {result['error']}")
+            else:
+                st.session_state.timeline_data = result['text']
+                st.session_state.courses = result['courses']
+                st.success("تمت المزامنة!")
 
-tab1, tab2, tab3 = st.tabs(["📅 Timeline", "📚 Course Deep Dive", "💬 Ask Elena"])
+tab1, tab2, tab3, tab4 = st.tabs(["📅 Timeline", "📚 Course Resources", "📊 Grades", "💬 Ask Elena"])
 
+# تبويب الجدول الزمني
 with tab1:
     if "timeline_data" in st.session_state:
         if st.button("Analyze My Deadlines"):
-            resp = st.session_state.chat_session.send_message(f"Extract deadlines and important dates from this text: {st.session_state.timeline_data}")
+            resp = st.session_state.chat_session.send_message(f"Extract deadlines from: {st.session_state.timeline_data}")
             st.info(resp.text)
-    else:
-        st.write("سجل دخولك من القائمة الجانبية لمشاهدة الجدول الزمني.")
+    else: st.write("سجل دخولك أولاً")
 
+# تبويب مصادر المساق (Deep Dive)
 with tab2:
     if st.session_state.courses:
-        st.subheader("إدارة المساقات")
-        selected_course = st.selectbox("اختر المساق:", list(st.session_state.courses.keys()))
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button(f"Summarize {selected_course}"):
-                url = st.session_state.courses[selected_course]
-                with st.spinner(f"Reading {selected_course}..."):
-                    res = run_selenium_task(u_id, u_pass, "course_deep_dive", url)
-                    if "text" in res:
-                        summary = st.session_state.chat_session.send_message(f"Summarize the content of this course page concisely: {res['text']}")
-                        st.success(summary.text)
-                    else:
-                        st.error("تعذر جلب محتوى المساق")
-        with col2:
-            st.link_button("🌐 فتح المساق في الموديل", st.session_state.courses[selected_course])
-    else:
-        st.info("لا توجد بيانات مساقات حالياً. قم بالمزامنة أولاً.")
+        selected_course = st.selectbox("اختر المساق للمعاينة العميق:", list(st.session_state.courses.keys()))
+        if st.button(f"Fetch Resources for {selected_course}"):
+            with st.spinner("Fetching links and content..."):
+                res = run_selenium_task(u_id, u_pass, "course_deep_dive", st.session_state.courses[selected_course])
+                if "resources" in res:
+                    st.session_state.current_content = res['text']
+                    st.subheader("🔗 Links found in this course:")
+                    for link in res['resources']:
+                        st.markdown(f"- [{link['name']}]({link['url']})")
+                else: st.error("Failed to fetch.")
+    else: st.info("Sync data first.")
+
+# تبويب الدرجات (Grades)
+with tab4: # تم تغيير الترتيب ليتناسب مع الواجهة
+    st.write("تبويب Ask Elena")
 
 with tab3:
-    if chat_input := st.chat_input("Ask Elena about your courses..."):
-        ctx = st.session_state.get("timeline_data", "")
-        with st.chat_message("assistant"):
-            response = st.session_state.chat_session.send_message(f"Context: {ctx}\nUser: {chat_input}")
-            st.write(response.text)
+    if st.session_state.courses:
+        sel_course_grade = st.selectbox("اختر المساق لرؤية الدرجات:", list(st.session_state.courses.keys()), key="grade_sel")
+        if st.button("Check My Grades"):
+            with st.spinner("Accessing Gradebook..."):
+                grade_res = run_selenium_task(u_id, u_pass, "get_grades", st.session_state.courses[sel_course_grade])
+                if "grades" in grade_res:
+                    st.text_area("Grade Report:", grade_res['grades'], height=200)
+                    ai_analysis = st.session_state.chat_session.send_message(f"Analyze these grades for me: {grade_res['grades']}")
+                    st.write("🤖 Elena's Analysis:")
+                    st.success(ai_analysis.text)
+                else: st.error("Could not find grades.")
+
+with tab4:
+    if chat_input := st.chat_input("Ask about anything..."):
+        response = st.session_state.chat_session.send_message(chat_input)
+        st.write(response.text)
