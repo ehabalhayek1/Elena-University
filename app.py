@@ -375,22 +375,39 @@ with tabs[4]:
     else:
         st.error("🚫 عذراً، هذا التبويب مخصص للمطور فقط.")
         
+# تأكد من وجود هذه الدالة في أعلى الكود
+def get_local_time():
+    # تعديل الوقت ليكون UTC+2 (توقيت فلسطين)
+    return datetime.utcnow() + timedelta(hours=2)
+
 with st.sidebar:
     # --- عرض تاريخ انتهاء الاشتراك (فقط للـ Prime) ---
     if st.session_state.get("user_status") == "Prime":
+        # جلب البيانات من النسخة الأحدث لـ db
+        db = load_db() 
         expire_str = db.get(current_u, {}).get("expire_at")
+        
         if expire_str:
             try:
-                # تحويل النص لتاريخ وتنسيقه
+                # تحويل النص لتاريخ وتنسيقه للعرض
                 dt_obj = datetime.strptime(expire_str, "%Y-%m-%d %H:%M:%S")
                 pretty_date = dt_obj.strftime("%Y/%m/%d - %I:%M %p")
-                st.info(f"📅 ينتهي اشتراكك في:\n**{pretty_date}**")
+                
+                # حساب الوقت المتبقي فعلياً
+                time_diff = dt_obj - get_local_time()
+                
+                # إذا ضايل أقل من يوم، بنبهه باللون الأصفر
+                if time_diff.total_seconds() > 0:
+                    st.info(f"📅 ينتهي اشتراكك في:\n**{pretty_date}**")
+                else:
+                    st.warning("⚠️ اشتراكك انتهى، سيتم التحويل للوضع العادي")
             except:
                 st.info(f"📅 ينتهي اشتراكك في: {expire_str}")
     
+    st.markdown("---") # خط فاصل للتنظيم
     st.header("⚙️ المزامنة")
-    uid = st.text_input("الرقم الجامعي")
-    upass = st.text_input("كلمة المرور", type="password")
+    uid = st.text_input("الرقم الجامعي", value=st.session_state.get("u_id", ""))
+    upass = st.text_input("كلمة المرور", type="password", value=st.session_state.get("u_pass", ""))
     
     if st.button("🚀 Sync Now", use_container_width=True):
         if uid and upass:
@@ -403,7 +420,9 @@ with st.sidebar:
                         "u_id": uid, 
                         "u_pass": upass
                     })
-                    # تحديث عداد المزامنات للمستخدم العادي
+                    
+                    # تحديث عداد المزامنات (فقط للمستخدم العادي)
+                    db = load_db()
                     if st.session_state.user_role != "developer" and st.session_state.user_status != "Prime":
                         db[current_u]["sync_count"] = db.get(current_u, {}).get("sync_count", 0) + 1
                         save_db(db)
