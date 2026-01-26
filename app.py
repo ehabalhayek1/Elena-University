@@ -172,19 +172,69 @@ if not st.session_state.is_logged_in:
     with center_col:
         st.markdown('<div class="login-box">', unsafe_allow_html=True)
         st.markdown("<h1 style='color: #FFD700;'>👑 Elena AI Portal</h1>", unsafe_allow_html=True)
-        u = st.text_input("اسم المستخدم")
-        p = st.text_input("كلمة السر", type="password")
-        if st.button("دخول للنظام", use_container_width=True):
-            if (u == "ethan" and p == "EM2006") or (u == "user" and p == "user1234"):
-                role = "developer" if u == "ethan" else "user"
-                st.session_state.update({"is_logged_in": True, "user_role": role, "username": u})
-                if role == "developer": st.session_state.user_status = "Prime"
-                st.session_state.registered_users.append({"User": u, "Status": st.session_state.user_status})
-                st.rerun()
-            else: st.error("بيانات خاطئة!")
+        
+        # إنشاء تبويبات للفصل بين العمليات
+        tab_login, tab_signup = st.tabs(["🔑 تسجيل دخول", "📝 إنشاء حساب"])
+        db = load_db()
+
+        with tab_login:
+            u = st.text_input("اسم المستخدم", key="login_u")
+            p = st.text_input("كلمة السر", type="password", key="login_p")
+            
+            col_in, col_forgot = st.columns(2)
+            
+            if col_in.button("دخول للنظام", use_container_width=True):
+                if u == "ethan" and p == "EM2006":
+                    st.session_state.update({"is_logged_in": True, "user_role": "developer", "user_status": "Prime", "username": u})
+                    st.rerun()
+                elif u in db and db[u]['password'] == p:
+                    st.session_state.update({"is_logged_in": True, "user_role": "user", "user_status": db[u]['status'], "username": u})
+                    st.rerun()
+                else:
+                    st.error("بيانات خاطئة!")
+
+            # زر "نسيت كلمة السر" يفتح قسم إضافي تحت
+            if col_forgot.button("نسيت كلمة السر؟", use_container_width=True):
+                st.session_state.show_reset = True
+
+            # --- قسم استعادة كلمة السر ---
+            if st.session_state.get("show_reset"):
+                st.markdown("---")
+                email_reset = st.text_input("أدخل إيميلك المسجل:")
+                if st.button("إرسال كود الاستعادة"):
+                    user_found = next((user for user, info in db.items() if info['email'] == email_reset), None)
+                    if user_found:
+                        otp = random.randint(1000, 9999)
+                        if send_otp(email_reset, otp):
+                            st.session_state.reset_otp = otp
+                            st.session_state.reset_user = user_found
+                            st.success("أرسلنا كود لبريدك!")
+                        else: st.error("خطأ في الإرسال")
+                    else: st.error("الإيميل غير موجود")
+                
+                if "reset_otp" in st.session_state:
+                    code_in = st.text_input("أدخل كود التحقق:")
+                    new_p = st.text_input("كلمة السر الجديدة:", type="password")
+                    if st.button("تأكيد التغيير"):
+                        if code_in == str(st.session_state.reset_otp):
+                            db[st.session_state.reset_user]['password'] = new_p
+                            save_db(db)
+                            st.success("تم التحديث! سجل دخولك الآن.")
+                            del st.session_state.show_reset
+                            del st.session_state.reset_otp
+                        else: st.error("الكود خطأ")
+
+        with tab_signup:
+            # هنا كود إنشاء الحساب اللي بعثته لك سابقاً (New User, Email, Password + OTP)
+            new_u = st.text_input("اسم مستخدم جديد")
+            new_e = st.text_input("إيميلك (Gmail)")
+            new_p = st.text_input("كلمة سر قوية", type="password")
+            if st.button("إنشاء الحساب"):
+                # منطق الـ OTP والتسجيل...
+                pass
+
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
-
 # --- 5. الواجهة الرئيسية ---
 badge = '<span class="prime-badge">PRIME 👑</span>' if st.session_state.user_status == "Prime" else ""
 st.markdown(f"## Elena Student AI {badge}", unsafe_allow_html=True)
@@ -299,6 +349,7 @@ with st.sidebar:
                 st.session_state.user_status = "Prime"
                 st.session_state.IF_VALID_CODES.remove(c_in) # استخدام لمرة واحدة
                 st.rerun()
+
 
 
 
