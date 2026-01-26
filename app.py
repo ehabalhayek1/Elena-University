@@ -161,8 +161,8 @@ if not st.session_state.get("is_logged_in"):
             u = st.text_input("اسم المستخدم", key="l_u")
             p = st.text_input("كلمة السر", type="password", key="l_p")
             
-            uid_input = st.text_input("الرقم الجامعي (للمزامنة)", key="l_uid")
-            upass_input = st.text_input("باسورد الجامعة (للمزامنة)", type="password", key="l_upass")
+            uid_input = st.text_input("الرقم الجامعي (اختياري)", key="l_uid")
+            upass_input = st.text_input("باسورد الجامعة (اختياري)", type="password", key="l_upass")
 
             col_in, col_forgot = st.columns(2)
             
@@ -565,6 +565,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
