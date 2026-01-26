@@ -62,6 +62,17 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # --- 3. التعرف التلقائي على المستخدم من الكوكيز ---
+# 1. أول الملف (التعريفات)
+def load_db():
+    if not os.path.exists("users_db.json"):
+        return {}
+    with open("users_db.json", "r") as f:
+        return json.load(f)
+
+# 2. إعدادات الكوكيز
+cookies = EncryptedCookieManager(prefix="elena/", password="EM2006_secret_key")
+if not cookies.ready():
+    st.stop()
 # هاد الكود بيمنع خروج المستخدم لما يعمل ريفريش
 if "username" in cookies and not st.session_state.get("is_logged_in"):
     saved_user = cookies["username"]
@@ -565,6 +576,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
