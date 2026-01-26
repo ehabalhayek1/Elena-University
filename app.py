@@ -166,7 +166,7 @@ if not st.session_state.is_logged_in:
         
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
-# --- 4. واجهة تسجيل الدخول (تصميم بوسط الشاشة) ---
+# --- 4. واجهة تسجيل الدخول المطورة (تصميم بوسط الشاشة) ---
 if not st.session_state.is_logged_in:
     _, center_col, _ = st.columns([1, 2, 1])
     with center_col:
@@ -193,11 +193,9 @@ if not st.session_state.is_logged_in:
                 else:
                     st.error("بيانات خاطئة!")
 
-            # زر "نسيت كلمة السر" يفتح قسم إضافي تحت
             if col_forgot.button("نسيت كلمة السر؟", use_container_width=True):
                 st.session_state.show_reset = True
 
-            # --- قسم استعادة كلمة السر ---
             if st.session_state.get("show_reset"):
                 st.markdown("---")
                 email_reset = st.text_input("أدخل إيميلك المسجل:")
@@ -225,16 +223,36 @@ if not st.session_state.is_logged_in:
                         else: st.error("الكود خطأ")
 
         with tab_signup:
-            # هنا كود إنشاء الحساب اللي بعثته لك سابقاً (New User, Email, Password + OTP)
-            new_u = st.text_input("اسم مستخدم جديد")
-            new_e = st.text_input("إيميلك (Gmail)")
-            new_p = st.text_input("كلمة سر قوية", type="password")
-            if st.button("إنشاء الحساب"):
-                # منطق الـ OTP والتسجيل...
-                pass
+            new_u = st.text_input("اسم مستخدم جديد", key="reg_u")
+            new_e = st.text_input("إيميلك (Gmail)", key="reg_e")
+            new_p = st.text_input("كلمة سر قوية", type="password", key="reg_p")
+            
+            if st.button("إرسال كود التحقق 📧", use_container_width=True):
+                if new_u in db: st.error("اسم المستخدم مأخوذ!")
+                elif not new_e.endswith("@gmail.com"): st.warning("يرجى استخدام Gmail فقط")
+                else:
+                    otp = random.randint(1000, 9999)
+                    if send_otp(new_e, otp):
+                        st.session_state.temp_otp = otp
+                        st.session_state.temp_data = {"u": new_u, "p": new_p, "e": new_e}
+                        st.success(f"تم إرسال الكود إلى {new_e}")
+                    else: st.error("فشل في الإرسال، تأكد من إعدادات البريد")
+
+            if "temp_otp" in st.session_state:
+                otp_input = st.text_input("أدخل الكود المستلم:", key="otp_reg")
+                if st.button("تأكيد وإنشاء الحساب"):
+                    if otp_input == str(st.session_state.temp_otp):
+                        data = st.session_state.temp_data
+                        db[data['u']] = {"password": data['p'], "email": data['e'], "status": "Standard", "sync_count": 0}
+                        save_db(db)
+                        st.balloons()
+                        st.success("تم التفعيل! يمكنك الآن تسجيل الدخول.")
+                        del st.session_state.temp_otp
+                    else: st.error("الكود خطأ!")
 
         st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
+
 # --- 5. الواجهة الرئيسية ---
 badge = '<span class="prime-badge">PRIME 👑</span>' if st.session_state.user_status == "Prime" else ""
 st.markdown(f"## Elena Student AI {badge}", unsafe_allow_html=True)
@@ -349,6 +367,7 @@ with st.sidebar:
                 st.session_state.user_status = "Prime"
                 st.session_state.IF_VALID_CODES.remove(c_in) # استخدام لمرة واحدة
                 st.rerun()
+
 
 
 
