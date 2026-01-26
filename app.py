@@ -98,28 +98,43 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
     finally: driver.quit()
 
 # --- 4. واجهة تسجيل الدخول المطورة ---
-if not st.session_state.is_logged_in:
-    _, center_col, _ = st.columns([1, 2, 1])
-    with center_col:
-        st.markdown('<div class="login-box">', unsafe_allow_html=True)
-        st.markdown("<h1 style='color: #FFD700;'>👑 Elena AI Portal</h1>", unsafe_allow_html=True)
-        
-        tab_login, tab_signup = st.tabs(["🔑 تسجيل دخول", "📝 تسجيل جديد"])
-        db = load_db()
-
-        with tab_login:
+with tab_login:
             u = st.text_input("اسم المستخدم", key="l_u")
             p = st.text_input("كلمة السر", type="password", key="l_p")
+            
+            # --- إضافة خانات بيانات الجامعة في صفحة الدخول (اختياري بس أفضل للمزامنة) ---
+            # إذا كنت بدك الطالب يدخلهم أول مرة بس ويتحفظوا:
+            uid_input = st.text_input("الرقم الجامعي (للمزامنة)", key="l_uid")
+            upass_input = st.text_input("باسورد الجامعة (للمزامنة)", type="password", key="l_upass")
+
             col_in, col_forgot = st.columns(2)
             
             if col_in.button("دخول للنظام", use_container_width=True):
+                # 1. حالة المطور (إيثان)
                 if u == "ethan" and p == "EM2006":
-                    st.session_state.update({"is_logged_in": True, "user_role": "developer", "user_status": "Prime", "username": "Ethan"})
+                    st.session_state.update({
+                        "is_logged_in": True, 
+                        "user_role": "developer", 
+                        "user_status": "Prime", 
+                        "username": "Ethan",
+                        "u_id": uid_input,    # حفظ الرقم الجامعي
+                        "u_pass": upass_input # حفظ كلمة السر
+                    })
                     st.rerun()
+                
+                # 2. حالة الطالب العادي
                 elif u in db and db[u]['password'] == p:
-                    st.session_state.update({"is_logged_in": True, "user_role": "user", "user_status": db[u]['status'], "username": u})
+                    st.session_state.update({
+                        "is_logged_in": True, 
+                        "user_role": "user", 
+                        "user_status": db[u]['status'], 
+                        "username": u,
+                        "u_id": uid_input,    # حفظ الرقم الجامعي
+                        "u_pass": upass_input # حفظ كلمة السر
+                    })
                     st.rerun()
-                else: st.error("بيانات خاطئة!")
+                else: 
+                    st.error("بيانات خاطئة!")
 
             if col_forgot.button("نسيت كلمة السر؟", use_container_width=True):
                 st.session_state.show_reset = True
@@ -463,6 +478,24 @@ with st.sidebar:
                     st.error("فشلت المزامنة، تأكد من البيانات.")
         else:
             st.warning("يرجى إدخال الرقم الجامعي وكلمة المرور.")
+            
+            st.markdown("---")
+    with st.expander("⚙️ الإعدادات المتقدمة"):
+        if st.button("🔴 تسجيل الخروج", use_container_width=True):
+            # مسح بيانات الجلسة بالكامل
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            
+            st.success("تم تسجيل الخروج بنجاح!")
+            time.sleep(1)
+            st.rerun()
+
+    # خيار مسح الكاش (للمطور)
+    if st.session_state.get("user_role") == "developer":
+        if st.button("🧹 Clear Cache", use_container_width=True):
+            st.cache_data.clear()
+            st.success("تم مسح الكاش!")
+
 
 
 
