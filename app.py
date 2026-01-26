@@ -177,6 +177,31 @@ else: user_syncs = 0
 badge = '<span class="prime-badge">PRIME 👑</span>' if st.session_state.user_status == "Prime" else ""
 st.markdown(f"## Elena Student AI {badge}", unsafe_allow_html=True)
 
+# هيدر الترحيب
+    role_name = "إيثان" if st.session_state.user_role == "developer" else "طالب إيلينا"
+    badge = '<span class="prime-badge">PRIME MEMBER 👑</span>' if st.session_state.user_status == "Prime" else ""
+    st.markdown(f"<h2>أهلاً {role_name} {badge}</h2>", unsafe_allow_html=True)
+
+    # نافذة الاشتراك (Upgrade Section)
+    if st.session_state.user_status == "Standard":
+        with st.expander("⭐ تفعيل عضوية برايم (Prime Membership)"):
+            col_pay, col_code = st.columns(2)
+            with col_pay:
+                st.write("### 💳 طرق الدفع المحلية")
+                st.write("- **محفظة جوال باي:** `0594820775`")
+                st.write("- **بنك فلسطين:** `1701577` (إيهاب الحايك)")
+                st.write("- **تواصل واتساب:** [اضغط هنا للترقية](https://wa.me/+972594820775)")
+            with col_code:
+                st.write("### 🔑 تفعيل بكود")
+                code_in = st.text_input("أدخل كود الاشتراك:")
+                if st.button("تفعيل الآن"):
+                    if code_in in IF_VALID_CODES:
+                        st.session_state.user_status = "Prime"
+                        st.success("تم التفعيل! أنت الآن مستخدم برايم.")
+                        time.sleep(1)
+                        st.rerun()
+                    else: st.error("الكود غير صالح")
+
 # حماية الليمت
 if st.session_state.user_role != "developer" and st.session_state.user_status != "Prime":
     remaining = 10 - user_syncs
@@ -191,16 +216,82 @@ if st.session_state.user_role != "developer" and st.session_state.user_status !=
                 st.rerun()
         st.stop()
 
+# --- تنظيم التبويبات والصلاحيات ---
 tabs = st.tabs(["📅 المخطط الذكي", "📚 المقررات", "📊 الدرجات", "💬 Ask Elena", "🛠️ الإدارة"])
 
-with tabs[2]: # الدرجات
-    if st.session_state.courses:
-        sel_g = st.selectbox("المادة:", list(st.session_state.courses.keys()))
-        if st.button("جلب الدرجات 📈"):
-            res = run_selenium_task(st.session_state.u_id, st.session_state.u_pass, "grades", st.session_state.courses[sel_g])
-            if "data" in res: st.text_area("الدرجات:", res['data'], height=200)
-    else: st.info("قم بالمزامنة أولاً.")
+# 1. المخطط الذكي
+with tabs[0]:
+    if st.session_state.get("timeline_data"):
+        if st.button("رتب لي جدول دراستي 📅"):
+            p = f"رتب المهام حسب الأولوية في جدول: {st.session_state.timeline_data}"
+            resp = st.session_state.chat_session.send_message(p)
+            st.write(resp.text)
+    else: 
+        st.info("قم بالمزامنة أولاً من القائمة الجانبية")
 
+# 2. المقررات
+with tabs[1]:
+    if st.session_state.get("courses"):
+        course = st.selectbox("اختر المساق:", list(st.session_state.courses.keys()))
+        if st.button("سحب المصادر 🔍"):
+            # التأكد من وجود البيانات قبل التشغيل
+            uid = st.session_state.get("u_id")
+            upass = st.session_state.get("u_pass")
+            if uid and upass:
+                res = run_selenium_task(uid, upass, "course_deep_dive", st.session_state.courses[course])
+                if "resources" in res:
+                    for link in res['resources']:
+                        st.markdown(f"🔗 [{link['name']}]({link['url']})")
+                else: st.error("لم يتم العثور على مصادر.")
+            else: st.warning("أدخل بيانات الجامعة في القائمة الجانبية أولاً.")
+    else: 
+        st.info("لا توجد بيانات مساقات. اعمل Sync أولاً.")
+
+# 3. الدرجات (الشغالة تمام)
+with tabs[2]:
+    if st.session_state.get("courses"):
+        sel_g = st.selectbox("اختر المادة لعرض الدرجات:", list(st.session_state.courses.keys()), key="g_sel")
+        if st.button("جلب الدرجات 📈"):
+            uid = st.session_state.get("u_id")
+            upass = st.session_state.get("u_pass")
+            if uid and upass:
+                with st.spinner("جاري جلب بياناتك..."):
+                    res = run_selenium_task(uid, upass, "grades", st.session_state.courses[sel_g])
+                    if "data" in res: 
+                        st.success("تم جلب الدرجات بنجاح!")
+                        st.text_area("جدول الدرجات:", res['data'], height=250)
+                    else: st.error(f"خطأ: {res.get('error', 'لا يمكن الوصول للدرجات')}")
+            else: st.warning("أدخل بيانات الجامعة أولاً.")
+    else: 
+        st.error("رجاءً قم بعمل 'Sync Now' من القائمة الجانبية أولاً.")
+
+# 4. Ask Elena (تصحيح المسافات والخطأ)
+with tabs[3]:
+    st.caption("🤖 إيلينا في وضع الذكاء الأكاديمي المتطور")
+    if chat_input := st.chat_input("اسأل إيلينا..."):
+        with st.chat_message("user"):
+            st.write(chat_input)
+        with st.chat_message("assistant"):
+            response = st.session_state.chat_session.send_message(chat_input)
+            st.write(response.text)
+
+# 5. الإدارة (حصري لإيثان فقط)
+with tabs[4]:
+    if st.session_state.get("user_role") == "developer":
+        st.subheader("🛠️ لوحة تحكم المطور")
+        db_admin = load_db()
+        st.write("👥 إحصائيات المستخدمين:")
+        st.json(db_admin)
+        
+        st.markdown("---")
+        st.write(f"🔑 الأكواد المتاحة: `{st.session_state.IF_VALID_CODES}`")
+        new_c = st.text_input("إضافة كود جديد:")
+        if st.button("إضافة الكود ✅"):
+            st.session_state.IF_VALID_CODES.append(new_c)
+            st.success("تم!")
+    else:
+        st.error("🚫 عذراً، هذا التبويب مخصص للمطور فقط.")
+        
 with st.sidebar:
     st.header("⚙️ المزامنة")
     uid = st.text_input("الرقم الجامعي")
@@ -214,13 +305,6 @@ with st.sidebar:
                 save_db(db)
             st.rerun()
 
-    if st.session_state.user_status == "Standard":
-        c_in = st.text_input("كود البريميوم")
-        if st.button("تفعيل"):
-            if c_in in st.session_state.IF_VALID_CODES:
-                st.session_state.user_status = "Prime"
-                st.session_state.IF_VALID_CODES.remove(c_in) # استخدام لمرة واحدة
-                st.rerun()
 
 
 
