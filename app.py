@@ -61,11 +61,14 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+def load_db():
+    if not os.path.exists("users_db.json"):
+        return {}
+    with open("users_db.json", "r") as f:
+        return json.load(f)
 # --- 3. التعرف التلقائي على المستخدم من الكوكيز ---
 if "username" in cookies and cookies["username"] and not st.session_state.get("is_logged_in"):
     saved_user = cookies["username"]
-    
-    # التأكد أن القيمة ليست نصاً فارغاً (عشان تسجيل الخروج يزبط)
     if saved_user.strip() != "":
         db = load_db()
     
@@ -574,6 +577,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
