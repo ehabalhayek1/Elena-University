@@ -559,18 +559,20 @@ with st.sidebar:
         st.markdown("---")
     with st.expander("⚙️ الإعدادات المتقدمة"):
         if st.button("🔴 تسجيل الخروج", use_container_width=True):
-            # 1. حذف الكوكيز من المتصفح لضمان عدم الدخول التلقائي
+            # حذف الكوكي
+            cookies["username"] = "" # تصفير القيمة أولاً
             if "username" in cookies:
                 del cookies["username"]
-                cookies.save()
             
-            # 2. مسح بيانات الجلسة بالكامل
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+            cookies.save() # حفظ التغيير في المتصفح
             
-            st.success("تم تسجيل الخروج بنجاح!")
-            time.sleep(1)
+            # مسح الجلسة
+            st.session_state.clear()
+            st.session_state["is_logged_in"] = False # تأكيد الخروج
+            
+            st.success("تم تسجيل الخروج...")
             st.rerun()
+            st.stop() # منع الكود من إكمال أي سطر إضافي
 
     # خيار مسح الكاش (للمطور إيثان)
     if st.session_state.get("user_role") == "developer":
