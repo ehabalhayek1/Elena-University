@@ -492,14 +492,15 @@ with tabs[0]:
         st.warning("⚠️ لا توجد بيانات حالياً. الرجاء جلب البيانات من موقع الجامعة أولاً.")
 # --- داخل تبويب المساقات ---
 with tabs[1]: 
-st.subheader("📖 مستكشف محتوى المساقات")
+    # لازم يكون فيه فراغ (Tab) قبل كل الأسطر اللي تحت
+    st.subheader("📖 مستكشف محتوى المساقات")
     
     # قائمة المواد
     course_to_scan = st.selectbox("اختر المادة المراد استكشافها:", ["برمجة 1", "إحصاء", "تفاضل"])
     
     if st.button(f"افتح محتويات {course_to_scan}"):
         with st.spinner("جاري جرد الملفات والفيديوهات من المودل..."):
-            # الرابط الفعلي للمادة (يجب تغييره حسب المادة المختارة)
+            # الرابط الفعلي للمادة
             course_url = "https://moodle.iugaza.edu.ps/course/view.php?id=123" 
             links = get_course_content(course_url)
             st.session_state.current_course_links = links
@@ -510,29 +511,25 @@ st.subheader("📖 مستكشف محتوى المساقات")
             with col1:
                 st.write(f"📄 {link['name']}")
             with col2:
-                # استخدمنا الـ URL كـ Key فريد للزر
+                # الكود هون كمان لازم يكون مزاح لليمين
                 if st.button("حلل الآن", key=link['url']):
                     with st.spinner("إيلينا تقرأ وتحلل الآن..."):
                         try:
                             if ".pdf" in link['url'] or "resource" in link['url']:
-                                # 1. تحميل ملف الـ PDF برمجياً
                                 import requests
                                 response = requests.get(link['url'])
                                 pdf_file = io.BytesIO(response.content)
                                 
-                                # 2. استخراج النص
                                 pdf_reader = PyPDF2.PdfReader(pdf_file)
                                 text = ""
                                 for page in pdf_reader.pages:
                                     text += page.extract_text()
                                 
-                                # 3. المناداة: إرسال النص لدالة التلخيص
                                 summary = summarize_content(text, "ملف محاضرة PDF")
                                 st.success("✅ اكتمل التلخيص! اذهب لـ 'Ask Elena' لمناقشته.")
                                 st.markdown(summary)
                                 
                             else:
-                                # في حال كان رابط فيديو أو يوتيوب
                                 st.info("تحليل الفيديو سيعتمد على الرابط حالياً...")
                                 summary = summarize_content(f"رابط فيديو للمادة: {link['url']}", "فيديو تعليمي")
                                 st.markdown(summary)
@@ -585,8 +582,13 @@ with tabs[2]:
                         {"role": "user", "content": prompt}
                     ]
                 )
+
+                # --- التعديل الجوهري هان ---
+                # حفظ نص التحليل في الذاكرة المركزية عشان يظهر في Ask Elena
+                st.session_state.grades_analysis_result = analysis.choices[0].message.content
                 
-                st.success(analysis.choices[0].message.content)
+                # عرض النتيجة فوراً للطالب
+                st.success(st.session_state.grades_analysis_result)
                 
             except Exception as e:
                 st.error(f"حدث خطأ أثناء سحب العلامات: {e}")
@@ -840,6 +842,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
