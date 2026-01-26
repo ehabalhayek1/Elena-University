@@ -18,9 +18,13 @@ import time
 
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    # تحديد الإصدار v1beta بيحل مشاكل الـ 404 مع موديلات flash الجديدة
-    genai.configure(api_key=GEMINI_API_KEY) 
+    
+    # التعديل هون: نحدد الإصدار المستقر v1 عشان نحل مشكلة الـ 404
+    genai.configure(api_key=GEMINI_API_KEY, transport='grpc') 
+    
+    # نستخدم الاسم الأساسي للموديل
     model = genai.GenerativeModel('gemini-1.5-flash')
+    
 except KeyError:
     st.error("خطأ: مفتاح GEMINI_API_KEY غير موجود في الـ Secrets!")
     st.stop()
@@ -649,6 +653,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
