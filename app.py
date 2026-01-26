@@ -16,8 +16,13 @@ from email.message import EmailMessage
 from streamlit_cookies_manager import EncryptedCookieManager
 import time
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-1.5-flash')
+try:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except KeyError:
+    st.error("خطأ: مفتاح GEMINI_API_KEY غير موجود في الـ Secrets!")
+    st.stop()
 
 cookies = EncryptedCookieManager(prefix="elena/", password="EM2006_secret_key")
 if not cookies.ready():
@@ -617,6 +622,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
