@@ -69,10 +69,6 @@ def load_db():
     with open("users_db.json", "r") as f:
         return json.load(f)
 
-# 2. إعدادات الكوكيز
-cookies = EncryptedCookieManager(prefix="elena/", password="EM2006_secret_key")
-if not cookies.ready():
-    st.stop()
 # هاد الكود بيمنع خروج المستخدم لما يعمل ريفريش
 if "username" in cookies and not st.session_state.get("is_logged_in"):
     saved_user = cookies["username"]
@@ -576,6 +572,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
