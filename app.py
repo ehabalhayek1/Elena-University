@@ -207,6 +207,7 @@ if st.session_state.user_status == "Standard":
             st.write("### 💳 طرق الدفع المحلية")
             st.write("- **محفظة جوال باي:** `0594820775`")
             st.write("- **بنك فلسطين:** `1701577` (إيهاب الحايك)")
+            st.write("- **تواصل واتساب:** [اضغط هنا للترقية](https://wa.me/+972594820775)")
         
         with col_code:
             st.write("### 🔑 تفعيل بكود")
@@ -386,6 +387,7 @@ with st.sidebar:
                 db[current_u]["sync_count"] = db.get(current_u, {}).get("sync_count", 0) + 1
                 save_db(db)
             st.rerun()
+
 
 
 
