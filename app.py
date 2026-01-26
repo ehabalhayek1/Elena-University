@@ -3,6 +3,8 @@ import smtplib
 import random
 import json
 import os
+import PyPDF2
+import io
 from groq import Groq
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -27,6 +29,19 @@ except KeyError:
 cookies = EncryptedCookieManager(prefix="elena/", password="EM2006_secret_key")
 if not cookies.ready():
     st.stop()
+
+def summarize_content(text_to_analyze, type="ملف"):
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": f"أنت مساعد أكاديمي خبير. قم بتلخيص هذا الـ {type} بشكل نقاط مركزة ومفيدة للطالب."},
+                {"role": "user", "content": f"المحتوى المراد تلخيصه:\n\n{text_to_analyze[:15000]}"} 
+            ],
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"حدث خطأ في التلخيص: {e}"
     
 # --- الدالة السحرية لحل مشكلة الوقت (فلسطين UTC+2) ---
 def get_local_time():
@@ -386,29 +401,56 @@ tabs = st.tabs(["📅 المخطط الذكي", "📚 المقررات", "📊 �
 
 # 1. المخطط الذكي
 with tabs[0]:
-    if st.session_state.get("timeline_data"):
-        if st.button("رتب لي جدول دراستي 📅"):
-            # --- حماية من الـ AttributeError ---
-            if "chat_session" not in st.session_state:
-                # تأكد أن 'model' معرف في بداية الملف، إذا كان اسمه مختلف غيره هون
+    st.subheader("📅 المخطط الزمني الذكي")
+    
+    # تأكد إن البيانات موجودة في الجلسة
+    schedule_data = st.session_state.get("user_schedule") 
+    
+    if schedule_data:
+        # عرض الجدول الأصلي
+        st.write("جدولك الدراسي الحالي:")
+        st.table(schedule_data)
+        
+        st.markdown("---")
+        
+        # زر التحليل الذكي
+        if st.button("🧐 خلي إيلينا تحلل جدولك", use_container_width=True):
+            with st.spinner("إيلينا بتدرس مخططك الزمني... 📝"):
                 try:
-                    st.session_state.chat_session = model.start_chat(history=[])
-                except NameError:
-                    st.error("خطأ: لم يتم تعريف نموذج الذكاء الاصطناعي (model) في بداية الملف.")
-                    st.stop()
-
-            p = f"رتب المهام حسب الأولوية في جدول: {st.session_state.timeline_data}"
-            
-            # عرض لودر بسيط عشان الطالب يعرف إنه البرنامج بيفكر
-            with st.spinner("جاري ترتيب جدولك الذكي..."):
-                try:
-                    resp = st.session_state.chat_session.send_message(p)
-                    st.success("تم ترتيب الجدول بنجاح!")
-                    st.markdown(resp.text)
+                    # تحويل البيانات لنص
+                    schedule_text = str(schedule_data)
+                    # إرسال تاريخ اليوم للموديل عشان يكون دقيق في "اليوم وبكرة"
+                    today_date = get_local_time().strftime("%A, %Y-%m-%d")
+                    
+                    prompt = f"""
+                    تاريخ اليوم هو: {today_date}
+                    هذا هو المخطط الزمني الدراسي الخاص بي:
+                    {schedule_text}
+                    
+                    بناءً على هذا الجدول، قم بما يلي:
+                    1. لخص لي شو عليّ محاضرات اليوم وبكرة (حسب التاريخ المذكور).
+                    2. اقترح لي أفضل وقت للدراسة (استغل الفجوات بين المحاضرات).
+                    3. أعطني نصيحة ذكية لتنظيم وقتي بناءً على ضغط المواد.
+                    4. ايش لازم أدرس أول بأول؟
+                    أجب بأسلوب مشجع، مرتب، وباللغة العربية.
+                    """
+                    
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {"role": "system", "content": "أنت إيلينا، مساعدة أكاديمية ذكية متخصصة في تنظيم الوقت."},
+                            {"role": "user", "content": prompt}
+                        ],
+                    )
+                    
+                    analysis = response.choices[0].message.content
+                    st.success("💡 **تحليل إيلينا لمخططك:**")
+                    st.markdown(analysis)
+                    
                 except Exception as e:
-                    st.error(f"حدث خطأ أثناء التواصل مع إيلينا: {e}")
-    else: 
-        st.info("قم بالمزامنة أولاً من القائمة الجانبية")
+                    st.error(f"عذراً إيثان، صار مشكلة بالتحليل: {e}")
+    else:
+        st.warning("⚠️ لا توجد بيانات حالياً. الرجاء جلب البيانات من موقع الجامعة أولاً.")
 # 2. المقررات
 with tabs[1]:
     if st.session_state.get("courses"):
@@ -660,6 +702,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
