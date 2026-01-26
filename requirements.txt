@@ -1,6 +1,7 @@
 streamlit
-google-generativeai
+groq
 selenium
 webdriver-manager
 pandas
 streamlit-cookies-manager
+
