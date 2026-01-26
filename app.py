@@ -188,6 +188,58 @@ if not st.session_state.is_logged_in:
 # --- 5. الواجهة الرئيسية ---
 badge = '<span class="prime-badge">PRIME 👑</span>' if st.session_state.user_status == "Prime" else ""
 st.markdown(f"## Elena Student AI {badge}", unsafe_allow_html=True)
+بالظبط يا إيثان، تماماً تحت هادي الأسطر. المكان هاد هو "عقل" الصفحة اللي بيفحص مين المستخدم وقديش مسموح له يشوف قبل ما يعرض له التبويبات (Tabs).
+
+عشان يشتغل النظام صح، لازم نربط حالة المستخدم بملف الـ JSON اللي عملناه. إليك الكود جاهز للنسخ واللصق في هذا المكان:
+
+Python
+
+# --- التعديل تحت Elena Student AI مباشرة ---
+
+db = load_db()
+current_u = st.session_state.get("username", "user")
+
+# 1. تحديث حالة المستخدم من الملف (عشان لو ترقى من الإدارة يتحدث عنده فوراً)
+if current_u in db:
+    st.session_state.user_status = db[current_u].get("status", "Standard")
+    user_syncs = db[current_u].get("sync_count", 0)
+else:
+    user_syncs = 0
+
+# 2. منطق الحماية والليمت (للمستخدم العادي فقط)
+if st.session_state.user_role != "developer":
+    if st.session_state.user_status == "Prime":
+        st.sidebar.success("عضوية برايم نشطة ♾️")
+    else:
+        remaining = 10 - user_syncs
+        st.sidebar.markdown(f"""
+            <div style="background: rgba(255,255,255,0.05); padding: 10px; border-radius: 10px; border-right: 4px solid #FF4B4B;">
+                <p style="margin:0; font-size:13px; color: #FF4B4B;">محاولات المزامنة المتبقية</p>
+                <h3 style="margin:0;">{remaining} / 10</h3>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # إذا صفر، بنقفل عليه الموقع
+        if remaining <= 0:
+            st.error("⚠️ انتهت محاولاتك المجانية. يرجى الترقية للاستمرار.")
+            st.info("تواصل مع المطور إيثان للحصول على كود التفعيل.")
+            
+            # خانة ترقية سريعة
+            up_code = st.text_input("أدخل كود التفعيل 🔑:", key="lock_upgrade")
+            if st.button("تفعيل الحساب"):
+                if up_code in st.session_state.IF_VALID_CODES:
+                    db[current_u]["status"] = "Prime"
+                    st.session_state.IF_VALID_CODES.remove(up_code)
+                    save_db(db)
+                    st.success("مبروك! صرت برايم، أعد تحميل الصفحة.")
+                    st.rerun()
+            st.stop() # هاد السطر بيمنعه يشوف التبويبات اللي تحت
+
+# --- 3. تعديل مهم جداً لزر المزامنة (Sidebar) ---
+# لازم تروح لزر الـ Sync في الـ Sidebar وتضيف هاد الكود جواه عند نجاح العملية:
+# if st.session_state.user_role != "developer":
+#     db[current_u]["sync_count"] = db.get(current_u, {}).get("sync_count", 0) + 1
+#     save_db(db)
 
 tabs = st.tabs(["📅 المخطط الذكي", "📚 المقررات", "📊 الدرجات", "💬 Ask Elena", "🛠️ الإدارة"])
 
@@ -254,4 +306,5 @@ with st.sidebar:
                 st.session_state.user_status = "Prime"
                 st.session_state.IF_VALID_CODES.remove(c_in) # استخدام لمرة واحدة
                 st.rerun()
+
 
