@@ -11,6 +11,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
 from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 import time
 
@@ -169,11 +170,27 @@ if not st.session_state.is_logged_in:
 # --- 5. الواجهة الرئيسية ---
 db = load_db()
 current_u = st.session_state.get("username", "user")
-if current_u in db:
-    st.session_state.user_status = db[current_u].get("status", "Standard")
-    user_syncs = db[current_u].get("sync_count", 0)
-else: user_syncs = 0
 
+# 1. أول خطوة: فحص هل انتهى اشتراك البريميوم؟ (هاد الكود اللي سألت عنه)
+if st.session_state.get("user_status") == "Prime":
+    expire_str = db.get(current_u, {}).get("expire_at")
+    if expire_str:
+        expire_dt = datetime.strptime(expire_str, "%Y-%m-%d %H:%M:%S")
+        if datetime.now() > expire_dt:
+            # الاشتراك خلص! نرجعه للطالب العادي
+            db[current_u]["status"] = "Standard"
+            save_db(db)
+            st.session_state.user_status = "Standard"
+            st.warning("⚠️ انتهت مدة اشتراكك البريميوم، تم تحويل حسابك للوضع المجاني.")
+            st.rerun()
+
+# 2. ثاني خطوة: تحديث عداد المزامنات (عشان يظهر الرقم الصح)
+if current_u in db:
+    user_syncs = db[current_u].get("sync_count", 0)
+else: 
+    user_syncs = 0
+
+# 3. ثالث خطوة: رسم الهيدر والترحيب
 badge = '<span class="prime-badge">PRIME 👑</span>' if st.session_state.user_status == "Prime" else ""
 st.markdown(f"## Elena Student AI {badge}", unsafe_allow_html=True)
 
@@ -182,7 +199,7 @@ role_name = "إيثان" if st.session_state.user_role == "developer" else "طا
 badge = '<span class="prime-badge">PRIME MEMBER 👑</span>' if st.session_state.user_status == "Prime" else ""
 st.markdown(f"<h2>أهلاً {role_name} {badge}</h2>", unsafe_allow_html=True)
 
-# نافذة الاشتراك (Upgrade Section)
+# --- نافذة الاشتراك (Upgrade Section) ---
 if st.session_state.user_status == "Standard":
     with st.expander("⭐ تفعيل عضوية برايم (Prime Membership)"):
         col_pay, col_code = st.columns(2)
@@ -190,34 +207,43 @@ if st.session_state.user_status == "Standard":
             st.write("### 💳 طرق الدفع المحلية")
             st.write("- **محفظة جوال باي:** `0594820775`")
             st.write("- **بنك فلسطين:** `1701577` (إيهاب الحايك)")
-            st.write("- **تواصل واتساب:** [اضغط هنا للترقية](https://wa.me/+972594820775)")
         
         with col_code:
             st.write("### 🔑 تفعيل بكود")
-            code_in = st.text_input("أدخل كود الاشتراك:", key="unique_upgrade_key")
-            if st.button("تفعيل الآن"):
-                # قراءة قاعدة البيانات للتأكد من الأكواد المحفوظة فعلياً
+            # 1. الطالب بيدخل الكود هنا
+            code_in = st.text_input("أدخل كود الاشتراك:", key="upgrade_input_field")
+            
+            # 2. هاد هو الكود اللي سألت عنه (بيبدأ من زر التفعيل)
+            if st.button("تفعيل الآن ✅"):
                 db = load_db()
-                valid_codes = db.get("valid_codes", []) # بنقرأ من الملف مش من الـ session
-                
-                if code_in in valid_codes:
-                    # 1. تحديث حالة المستخدم في الجلسة
-                    st.session_state.user_status = "Prime"
-                    
-                    # 2. تحديث الحالة في ملف الـ JSON
-                    curr_user = st.session_state.username
-                    if curr_user in db:
-                        db[curr_user]["status"] = "Prime"
+                timed_codes = db.get("timed_codes", {})
+
+                if code_in in timed_codes:
+                    dur = timed_codes[code_in]
+                    now = datetime.now()
+
+                    # حساب وقت الانتهاء
+                    if dur == "1H": expire_date = now + timedelta(hours=1)
+                    elif dur == "1D": expire_date = now + timedelta(days=1)
+                    elif dur == "1M": expire_date = now + timedelta(days=30)
+                    elif dur == "1Y": expire_date = now + timedelta(days=365)
+
+                    # تحديث بيانات المستخدم في الملف والـ Session
+                    curr_u = st.session_state.username
+                    if curr_u in db:
+                        db[curr_u]["status"] = "Prime"
+                        db[curr_u]["expire_at"] = expire_date.strftime("%Y-%m-%d %H:%M:%S")
                         
-                        # 3. (حركة ذكية) مسح الكود من القائمة عشان ما يستخدمه حد تاني
-                        db["valid_codes"].remove(code_in)
+                        # حذف الكود عشان ما حد يسرقه ويستخدمه تاني
+                        del db["timed_codes"][code_in]
                         
                         save_db(db)
-                        st.success("تم التفعيل بنجاح! أنت الآن مستخدم بريميوم 👑")
-                        time.sleep(1)
+                        st.session_state.user_status = "Prime" # تحديث فوري للجلسة
+                        st.success(f"تم التفعيل! ينتهي اشتراكك في: {db[curr_u]['expire_at']}")
+                        time.sleep(2)
                         st.rerun()
-                else: 
-                    st.error("❌ الكود غير صالح أو تم استخدامه مسبقاً")
+                else:
+                    st.error("❌ الكود غير صالح أو منتهي الصلاحية")
                     
 # حماية الليمت
 if st.session_state.user_role != "developer" and st.session_state.user_status != "Prime":
@@ -360,6 +386,7 @@ with st.sidebar:
                 db[current_u]["sync_count"] = db.get(current_u, {}).get("sync_count", 0) + 1
                 save_db(db)
             st.rerun()
+
 
 
 
