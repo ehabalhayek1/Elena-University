@@ -565,33 +565,41 @@ with st.sidebar:
     
     # --- منطقة الإعدادات (تأكد أنها داخل بلوك السايدبار) ---
     with st.expander("⚙️ الإعدادات المتقدمة"):
-        if st.button("🔴 تسجيل الخروج", use_container_width=True):
-            # 1. تصفير الكوكيز يدوياً
-            cookies["username"] = "" 
-            
-            # 2. حذف المفتاح تماماً
-            if "username" in cookies:
-                del cookies["username"]
-            
-            # 3. حفظ التغييرات فوراً في المتصفح
-            cookies.save()
-            
-            # 4. مسح الجلسة وتأكيد حالة الخروج
-            st.session_state.clear()
-            st.session_state["is_logged_in"] = False
-            
-            st.success("تم تسجيل الخروج بنجاح!")
-            time.sleep(0.5)
-            
-            # 5. إعادة التشغيل والوقوف فوراً
-            st.rerun()
-            st.stop()
+    if st.button("🔴 تسجيل الخروج", use_container_width=True):
+        # 1. القوة الضاربة: مسح الكوكيز عن طريق الجافا سكريبت (لعيون كروم)
+        st.components.v1.html(
+            """
+            <script>
+            document.cookie.split(";").forEach(function(c) { 
+                document.cookie = c.replace(/^ +/, "").replace(/=.*/, "=;expires=" + new Date().toUTCString() + ";path=/"); 
+            });
+            window.parent.location.reload();
+            </script>
+            """,
+            height=0
+        )
+        
+        # 2. الكود العادي لضمان المسح من جهة السيرفر
+        cookies["username"] = ""
+        if "username" in cookies:
+            del cookies["username"]
+        cookies.save()
+        
+        # 3. مسح الجلسة
+        st.session_state.clear()
+        st.session_state["is_logged_in"] = False
+        
+        st.success("تم تسجيل الخروج بنجاح!")
+        time.sleep(0.5)
+        st.rerun()
+        st.stop()
 
     # خيار مسح الكاش (للمطور إيثان)
     if st.session_state.get("user_role") == "developer":
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
