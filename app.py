@@ -9,21 +9,45 @@ from webdriver_manager.chrome import ChromeDriverManager
 from webdriver_manager.core.os_manager import ChromeType
 import time
 
-# --- 1. إعدادات الصفحة ---
-st.set_page_config(page_title="Elena AI - Premium", page_icon="👑", layout="wide")
+# --- 1. إعدادات الصفحة والتصميم (لوحة دخول بوسط الشاشة) ---
+st.set_page_config(page_title="Elena AI", page_icon="👑", layout="wide")
 
-# --- 2. إدارة البيانات والأكواد (Single-use System) ---
-if "IF_VALID_CODES" not in st.session_state:
-    st.session_state.IF_VALID_CODES = ["ELENA-PRO-2026", "ETHAN-VIP"]
+st.markdown("""
+    <style>
+    .stApp { background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); color: white; }
+    [data-testid="stSidebar"] { background-color: rgba(15, 12, 41, 0.8); }
+    
+    /* تنسيق لوحة الدخول لتكون في المنتصف */
+    .login-box {
+        background-color: rgba(255, 255, 255, 0.05);
+        padding: 40px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 215, 0, 0.3);
+        text-align: center;
+        margin-top: 50px;
+    }
+    .prime-badge { background: linear-gradient(45deg, #f39c12, #f1c40f); color: black; padding: 4px 12px; border-radius: 12px; font-weight: bold; }
+    </style>
+    """, unsafe_allow_html=True)
 
-if "registered_users" not in st.session_state:
-    st.session_state.registered_users = [] # قائمة لتخزين بيانات الداخلين
-
+# --- 2. تهيئة الجلسة (البيانات) ---
+if "is_logged_in" not in st.session_state: st.session_state.is_logged_in = False
 if "user_status" not in st.session_state: st.session_state.user_status = "Standard"
 if "courses" not in st.session_state: st.session_state.courses = {}
 if "timeline_data" not in st.session_state: st.session_state.timeline_data = ""
+if "IF_VALID_CODES" not in st.session_state: st.session_state.IF_VALID_CODES = ["ELENA-PRO-2026", "ETHAN-VIP"]
+if "registered_users" not in st.session_state: st.session_state.registered_users = []
 
-# --- 3. محرك السيلينيوم المطور للتحليل التلقائي ---
+# تهيئة الذكاء الاصطناعي (حل مشكلة الـ AttributeError)
+if "chat_session" not in st.session_state:
+    try:
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        model = genai.GenerativeModel("models/gemini-flash-latest")
+        st.session_state.chat_session = model.start_chat(history=[])
+    except:
+        st.warning("⚠️ يرجى التأكد من مفتاح الـ API")
+
+# --- 3. محرك السيلينيوم (Data Engine) ---
 def run_selenium_task(username, password, task_type="timeline", target_url=None):
     options = Options()
     options.add_argument('--headless')
@@ -35,10 +59,10 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
         driver.get("https://sso.iugaza.edu.ps/saml/module.php/core/loginuserpass")
         time.sleep(2)
         driver.find_element(By.ID, "username").send_keys(username)
-        p_in = driver.find_element(By.ID, "password")
-        p_in.send_keys(password)
-        p_in.send_keys(Keys.ENTER)
-        time.sleep(10)
+        p_field = driver.find_element(By.ID, "password")
+        p_field.send_keys(password)
+        p_field.send_keys(Keys.ENTER)
+        time.sleep(8)
         
         if task_type == "timeline":
             body = driver.find_element(By.TAG_NAME, "body").text
@@ -46,100 +70,99 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
             course_map = {l.text.strip(): l.get_attribute("href") for l in links if len(l.text) > 5}
             return {"text": body, "courses": course_map}
         
-        elif task_type == "deep_analyze":
-            driver.get(target_url)
-            time.sleep(5)
-            # سحب نصوص الواجبات والمحتوى لتحليله
-            course_content = driver.find_element(By.ID, "region-main").text
-            return {"content": course_content}
-            
+        elif task_type == "grades":
+            g_url = target_url.replace("course/view.php", "grade/report/user/index.php")
+            driver.get(g_url)
+            time.sleep(4)
+            return {"data": driver.find_element(By.TAG_NAME, "table").text}
     except Exception as e: return {"error": str(e)}
     finally: driver.quit()
 
-# --- 4. نظام الدخول وتسجيل البيانات ---
-if "is_logged_in" not in st.session_state:
-    st.markdown("<h1 style='text-align:center;'>🚀 Elena Portal</h1>", unsafe_allow_html=True)
-    u = st.text_input("Username")
-    p = st.text_input("Password", type="password")
-    if st.button("دخول"):
-        role = "developer" if u == "ethan" else "user"
-        st.session_state.update({"is_logged_in": True, "user_role": role, "username": u})
-        # إضافة المستخدم للقائمة لمراقبة المدير
-        st.session_state.registered_users.append({"name": u, "role": role, "status": "Prime" if role=="developer" else "Standard"})
-        st.rerun()
+# --- 4. واجهة تسجيل الدخول (تصميم بوسط الشاشة) ---
+if not st.session_state.is_logged_in:
+    _, center_col, _ = st.columns([1, 2, 1])
+    with center_col:
+        st.markdown('<div class="login-box">', unsafe_allow_html=True)
+        st.markdown("<h1 style='color: #FFD700;'>👑 Elena AI Portal</h1>", unsafe_allow_html=True)
+        u = st.text_input("اسم المستخدم")
+        p = st.text_input("كلمة السر", type="password")
+        if st.button("دخول للنظام", use_container_width=True):
+            if (u == "ethan" and p == "EM2006") or (u == "user" and p == "user1234"):
+                role = "developer" if u == "ethan" else "user"
+                st.session_state.update({"is_logged_in": True, "user_role": role, "username": u})
+                if role == "developer": st.session_state.user_status = "Prime"
+                st.session_state.registered_users.append({"User": u, "Status": st.session_state.user_status})
+                st.rerun()
+            else: st.error("بيانات خاطئة!")
+        st.markdown('</div>', unsafe_allow_html=True)
     st.stop()
 
-# --- 5. الواجهة والتبويبات ---
-tabs = st.tabs(["📅 المخطط الذكي", "📚 تحليل المقررات", "💬 Ask Elena", "🛠️ لوحة المدير"])
+# --- 5. الواجهة الرئيسية ---
+badge = '<span class="prime-badge">PRIME 👑</span>' if st.session_state.user_status == "Prime" else ""
+st.markdown(f"## Elena Student AI {badge}", unsafe_allow_html=True)
 
-# المخطط الذكي (يعرض البيانات كما كانت سابقاً)
+tabs = st.tabs(["📅 المخطط الذكي", "📚 المقررات", "📊 الدرجات", "💬 Ask Elena", "🛠️ الإدارة"])
+
+# المخطط الذكي
 with tabs[0]:
     if st.session_state.timeline_data:
-        st.subheader("🗓️ تحليل الجدول الدراسي")
-        with st.spinner("إيلينا تحلل مواعيدك..."):
-            analysis = st.session_state.chat_session.send_message(f"حلل هذه المواعيد ورتبها لي كجدول: {st.session_state.timeline_data}")
-            st.markdown(analysis.text)
-    else: st.info("قم بعمل مزامنة أولاً.")
+        if st.button("تحليل الجدول الدراسي بالذكاء الاصطناعي"):
+            res = st.session_state.chat_session.send_message(f"حلل هذه المواعيد: {st.session_state.timeline_data}")
+            st.markdown(res.text)
+    else: st.info("قم بالمزامنة من القائمة الجانبية.")
 
-# تحليل المقررات (تلقائي بالكامل)
+# المقررات
 with tabs[1]:
     if st.session_state.courses:
-        sel_course = st.selectbox("اختر المساق للتحليل العميق:", list(st.session_state.courses.keys()))
-        if st.button("تحليل المساق بالكامل 🔍"):
-            with st.spinner("السيرفر يقوم بسحب الواجبات والملفات الآن..."):
-                res = run_selenium_task(st.session_state.u_id, st.session_state.u_pass, "deep_analyze", st.session_state.courses[sel_course])
-                if "content" in res:
-                    st.session_state.last_analysis = res['content']
-                    st.success("تم سحب البيانات! توجه لقسم Ask Elena لرؤية التلخيص.")
-    else: st.warning("لا توجد بيانات مقررات.")
+        sel = st.selectbox("اختر المادة للتحليل:", list(st.session_state.courses.keys()))
+        if st.button("تحليل محتوى المساق"):
+            st.write("جاري سحب المحتوى والملفات تلقائياً...")
+    else: st.warning("لا توجد بيانات.")
 
-# Ask Elena (مكان التلخيص)
+# الدرجات (التي طلبتها)
 with tabs[2]:
-    if "last_analysis" in st.session_state:
-        st.subheader("🤖 تلخيص إيلينا الذكي للمساق")
-        summary_prompt = f"لخص لي هذا المساق، استخرج الواجبات المطلوبة وتواريخها المهمة: {st.session_state.last_analysis}"
-        summary = st.session_state.chat_session.send_message(summary_prompt)
-        st.write(summary.text)
-    
-    chat = st.chat_input("اسأل عن أي شيء آخر...")
+    if st.session_state.courses:
+        sel_g = st.selectbox("اختر المادة لعرض الدرجات:", list(st.session_state.courses.keys()), key="g_sel")
+        if st.button("جلب الدرجات 📈"):
+            with st.spinner("جاري جلب بياناتك..."):
+                res = run_selenium_task(st.session_state.u_id, st.session_state.u_pass, "grades", st.session_state.courses[sel_g])
+                if "data" in res: st.text_area("جدول الدرجات:", res['data'], height=250)
+    else: st.error("قم بالمزامنة أولاً.")
 
-# لوحة المدير (الإضافات الجديدة)
+# Ask Elena
 with tabs[3]:
+    q = st.chat_input("اسأل إيلينا...")
+    if q: st.write(st.session_state.chat_session.send_message(q).text)
+
+# الإدارة (إيثان)
+with tabs[4]:
     if st.session_state.user_role == "developer":
-        st.header("🛠️ إدارة المنصة (إيثان)")
-        
-        col1, col2 = st.columns(2)
-        col1.metric("عدد المستخدمين", len(st.session_state.registered_users))
-        col2.metric("الأكواد المتبقية", len(st.session_state.IF_VALID_CODES))
-        
-        st.subheader("👥 قائمة المستخدمين المتصلين")
+        st.write("📊 إحصائيات النظام")
         st.table(st.session_state.registered_users)
-        
-        st.subheader("🔑 إدارة الأكواد (استخدام مرة واحدة)")
+        st.write(f"الأكواد المتاحة: {st.session_state.IF_VALID_CODES}")
         new_c = st.text_input("أضف كود جديد")
-        if st.button("إضافة كود"):
+        if st.button("إضافة"): 
             st.session_state.IF_VALID_CODES.append(new_c)
             st.rerun()
-    else: st.error("غير مسموح لك بالدخول هنا.")
+    else: st.error("للمطور فقط.")
 
-# --- القائمة الجانبية (Sidebar) ---
+# القائمة الجانبية
 with st.sidebar:
     st.header("⚙️ المزامنة")
-    st.session_state.u_id = st.text_input("ID الجامعي")
-    st.session_state.u_pass = st.text_input("باسورد المودل", type="password")
+    st.session_state.u_id = st.text_input("الرقم الجامعي")
+    st.session_state.u_pass = st.text_input("كلمة المرور", type="password")
     if st.button("🚀 Sync Now"):
-        res = run_selenium_task(st.session_state.u_id, st.session_state.u_pass, "timeline")
-        if "courses" in res:
-            st.session_state.courses = res['courses']
-            st.session_state.timeline_data = res['text']
-            st.success("تمت المزامنة!")
-            st.rerun()
-    
+        with st.spinner("Elena is working..."):
+            res = run_selenium_task(st.session_state.u_id, st.session_state.u_pass, "timeline")
+            if "courses" in res:
+                st.session_state.courses = res['courses']
+                st.session_state.timeline_data = res['text']
+                st.rerun()
+
     if st.session_state.user_status == "Standard":
-        code = st.text_input("أدخل كود التفعيل")
-        if st.button("تفعيل بريميوم"):
-            if code in st.session_state.IF_VALID_CODES:
+        c_in = st.text_input("كود البريميوم")
+        if st.button("تفعيل"):
+            if c_in in st.session_state.IF_VALID_CODES:
                 st.session_state.user_status = "Prime"
-                st.session_state.IF_VALID_CODES.remove(code) # حذف الكود ليعمل مرة واحدة فقط
-                st.success("مبروك! تم التفعيل وحذف الكود من النظام.")
+                st.session_state.IF_VALID_CODES.remove(c_in) # استخدام لمرة واحدة
                 st.rerun()
