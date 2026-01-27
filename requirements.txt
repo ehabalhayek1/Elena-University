@@ -1,8 +1,8 @@
 streamlit
-groq
 selenium
 webdriver-manager
-pandas
-streamlit-cookies-manager
+groq
+pytz
 PyPDF2
-
+requests
+streamlit-cookies-manager
