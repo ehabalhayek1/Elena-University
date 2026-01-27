@@ -233,80 +233,70 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
         service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        # 1. الدخول عبر بوابة SSO
+        # 1. الدخول
         driver.get("https://sso.iugaza.edu.ps/saml/module.php/core/loginuserpass")
         time.sleep(3)
-        
         driver.find_element(By.ID, "username").send_keys(username)
         p_field = driver.find_element(By.ID, "password")
         p_field.send_keys(password)
         p_field.send_keys(Keys.ENTER)
         
-        # انتظر التحميل الكامل للمودل (زدنا الوقت لضمان تحميل التايم لاين)
-        time.sleep(12) 
+        # انتظر تحميل الداشبورد (زدنا الوقت لـ 15 ثانية للتأكد)
+        time.sleep(15) 
 
-        # 2. سحب الاسم الحقيقي بدقة
+        # سحب الاسم الحقيقي
         student_name = "مستخدم إيلينا"
-        for selector in [".usertext", ".userbutton span", ".username"]:
-            try:
-                name_element = driver.find_element(By.CSS_SELECTOR, selector)
-                if name_element.text.strip():
-                    student_name = name_element.text.strip()
-                    break
-            except: continue
+        try:
+            student_name = driver.find_element(By.CSS_SELECTOR, ".usertext, .username, .userbutton span").text
+        except: pass
 
         if task_type == "timeline":
-            # 3. سحب المخطط الزمني (الواجبات القادمة)
+            # سحب الكورسات
+            links = driver.find_elements(By.CSS_SELECTOR, "a[href*='course/view.php?id=']")
+            course_map = {l.text.strip(): l.get_attribute("href") for l in links if len(l.text) > 8}
+            
+            # سحب التايم لاين بطريقة أقوى (نبحث عن أي نص فيه تاريخ أو واجب)
             timeline_events = []
             try:
-                # هذا السيلكتور يجلب أسماء الفعاليات من بلوك المخطط الزمني
-                event_elements = driver.find_elements(By.CSS_SELECTOR, "[data-region='event-list-item'] a")
-                for ev in event_elements:
-                    if ev.text.strip():
-                        timeline_events.append(ev.text.strip())
+                # سحب كل الروابط داخل بلوك التايم لاين
+                events = driver.find_elements(By.CSS_SELECTOR, ".event-name, [data-region='event-list-item'] a")
+                timeline_events = [e.text.strip() for e in events if e.text.strip()]
             except: pass
-
-            # 4. سحب الكورسات
-            links = driver.find_elements(By.CSS_SELECTOR, "a[href*='course/view.php?id=']")
-            course_map = {}
-            for l in links:
-                t = l.text.strip()
-                # فلترة لضمان سحب أسماء المواد فقط وليس الروابط الجانبية
-                if len(t) > 8 and t not in course_map: 
-                    course_map[t] = l.get_attribute("href")
             
-            return {
-                "courses": course_map,
-                "student_name": student_name,
-                "timeline_list": timeline_events # الآن التايم لاين مليان بيانات
-            }
+            return {"courses": course_map, "student_name": student_name, "timeline_list": timeline_events}
 
         elif task_type == "grades":
             if target_url:
-                # تحويل الرابط لصفحة الدرجات
                 g_url = target_url.replace("course/view.php", "grade/report/user/index.php")
                 driver.get(g_url)
-                time.sleep(7) # صفحة الدرجات ثقيلة وتحتاج وقت
+                time.sleep(10) # صفحة العلامات ثقيلة جداً
                 
                 try:
-                    # سحب جدول الدرجات كـ Text أو HTML
-                    grade_table = driver.find_element(By.CSS_SELECTOR, "table.user-grade").text
-                    return {"data": grade_table, "student_name": student_name, "courses": {}}
+                    # جربنا سحب الجدول بكذا طريقة (لو فشل الأول بيجرب الثاني)
+                    try:
+                        grade_data = driver.find_element(By.CSS_SELECTOR, "table.user-grade").text
+                    except:
+                        grade_data = driver.find_element(By.TAG_NAME, "table").text # سحب أول جدول متاح
+                    
+                    return {"data": grade_data, "student_name": student_name}
                 except:
-                    return {"data": "لم يتم العثور على جدول الدرجات في هذه المادة.", "student_name": student_name}
-        
-        elif task_type == "browse": # سحب محتوى المادة عند التصفح
+                    return {"error": "لم نجد جدول العلامات، قد تكون المادة لا تحتوي على علامات مرصودة حالياً."}
+
+        elif task_type == "browse":
             if target_url:
                 driver.get(target_url)
-                time.sleep(5)
-                content = driver.find_element(By.ID, "region-main").text
-                return {"course_content": content, "student_name": student_name}
-                
+                time.sleep(8)
+                # سحب محتوى المادة الأساسي
+                try:
+                    main_content = driver.find_element(By.ID, "region-main").text
+                except:
+                    main_content = driver.find_element(By.TAG_NAME, "body").text
+                return {"course_content": main_content, "student_name": student_name}
+
     except Exception as e:
         return {"error": str(e)}
     finally:
-        if driver:
-            driver.quit()
+        if driver: driver.quit()
 # --- 4. واجهة تسجيل الدخول المطورة ---
 if not st.session_state.get("is_logged_in"):
     _, center_col, _ = st.columns([1, 2, 1])
@@ -603,26 +593,27 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("📖 مستكشف المقررات الذكي")
     
-    # 1. زر التحديث
+    # 1. زر التحديث (لاحظ المسافة البادئة هنا)
     if st.button("🔄 تحديث قائمة المقررات الرسمية"):
-        with st.spinner("إيلينا تتواصل مع المودل لجلب موادك..."):
-            try:
-                driver.get("https://moodle.iugaza.edu.ps/my/#")
-                time.sleep(4) 
+        # التأكد من وجود بيانات الدخول أولاً
+        uid = st.session_state.get("u_id")
+        upass = st.session_state.get("u_pass")
+        
+        if uid and upass:
+            with st.spinner("إيلينا تتواصل مع المودل لجلب موادك..."):
+                # استدعاء الدالة الاحترافية
+                res = run_selenium_task(uid, upass, task_type="timeline")
                 
-                course_elements = driver.find_elements(By.CSS_SELECTOR, "h4.multiline a")
-                if not course_elements:
-                    course_elements = driver.find_elements(By.CSS_SELECTOR, ".coursename a")
-                
-                if course_elements:
-                    real_courses = {elem.text.strip(): elem.get_attribute("href") for elem in course_elements if elem.text.strip()}
-                    st.session_state.my_real_courses = real_courses
-                    st.success(f"✅ تم العثور على {len(real_courses)} مواد!")
+                if res and "courses" in res and res["courses"]:
+                    st.session_state.my_real_courses = res["courses"]
+                    st.session_state.student_name = res.get("student_name", st.session_state.student_name)
+                    st.success(f"✅ تم العثور على {len(res['courses'])} مواد!")
+                    time.sleep(1)
                     st.rerun()
                 else:
-                    st.warning("⚠️ لم نجد مواد، تأكد من تسجيل الدخول.")
-            except Exception as e:
-                st.error(f"فشل جلب المواد: {e}")
+                    st.warning("⚠️ لم نجد مواد، تأكد من أن حسابك مفتوح في المودل.")
+        else:
+            st.error("⚠️ يرجى القيام بالمزامنة أولاً من القائمة الجانبية.")
 
     # 2. عرض القائمة المنسدلة (تظهر فقط إذا كانت البيانات موجودة)
     if "my_real_courses" in st.session_state and st.session_state.my_real_courses:
@@ -959,6 +950,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
