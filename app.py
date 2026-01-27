@@ -3,8 +3,8 @@ import smtplib
 import random
 import json
 import os
-import PyPDF2
 import io
+import requests
 from groq import Groq
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -16,6 +16,7 @@ from webdriver_manager.core.os_manager import ChromeType
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from streamlit_cookies_manager import EncryptedCookieManager
+from PyPDF2 import PdfReader
 import time
 import pytz
 
@@ -308,6 +309,28 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
                     except: continue
                 
                 return {"course_content": content, "course_links": found_links, "student_name": student_name}
+
+        elif task_type == "scrape_pdf":
+                if target_url:
+                    try:
+                        # سحب الكوكيز عشانrequests يعرف إننا مسجلين دخول
+                        cookies = {c['name']: c['value'] for c in driver.get_cookies()}
+                        # تنزيل الملف
+                        response = requests.get(target_url, cookies=cookies, timeout=15)
+                        
+                        if response.status_code == 200:
+                            pdf_file = io.BytesIO(response.content)
+                            reader = PdfReader(pdf_file)
+                            pdf_text = ""
+                            # استخراج النص من كل الصفحات
+                            for page in reader.pages:
+                                pdf_text += page.extract_text() + "\n"
+                            
+                            return {"pdf_text": pdf_text, "student_name": student_name}
+                        else:
+                            return {"error": f"فشل التحميل، كود الخطأ: {response.status_code}"}
+                    except Exception as e:
+                        return {"error": f"مشكلة في قراءة الـ PDF: {str(e)}"}
 
     except Exception as e:
         return {"error": str(e)}
@@ -631,7 +654,7 @@ with tabs[1]:
         course_url = st.session_state.my_real_courses[selected_course]
         
         if st.button("🔍 تصفح محتوى المادة وسحب الروابط", use_container_width=True):
-            uid = st.session_state.get("u_id") # جلب الـ uid هنا لمنع NameError
+            uid = st.session_state.get("u_id")
             upass = st.session_state.get("u_pass")
             
             if uid and upass:
@@ -640,18 +663,16 @@ with tabs[1]:
                     if res and "course_content" in res:
                         st.session_state.current_course_content = res["course_content"]
                         st.session_state.current_course_links = res.get("course_links", [])
-                        st.session_state.summarized_items = [] # تصفير التلخيصات القديمة
+                        st.session_state.summarized_items = [] 
                         st.success("✨ تم سحب محتوى المادة بنجاح!")
             else:
                 st.error("⚠️ بيانات المودل غير متوفرة، أعد المزامنة.")
 
-    # 3. عرض الملفات والروابط المستخرجة
+    # 3. عرض الملفات والروابط مع ميزة السحب العميق (PDF Scraping)
     if st.session_state.get("current_course_links"):
         st.write(f"### 📄 الملفات والروابط المكتشفة:")
-        st.info("إيلينا وجدت المصادر التالية، يمكنك فتحها أو طلب تلخيصها:")
         
         for i, link in enumerate(st.session_state.current_course_links):
-            # تنسيق العرض في أسطر
             with st.container():
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
@@ -659,50 +680,56 @@ with tabs[1]:
                 with col2:
                     st.link_button("📂 فتح", link['url'], use_container_width=True)
                 with col3:
-                    # منطق التلخيص
                     summarized = st.session_state.get("summarized_items", [])
                     is_done = link['url'] in summarized
                     btn_label = "✅ ملخص" if is_done else "🪄 تلخيص"
                     
                     if st.button(btn_label, key=f"sum_{i}", use_container_width=True):
-                        with st.spinner("إيلينا تقرأ وتلخص..."):
-                            # 1. التأكد من وجود قائمة الملخصات
-                            if "summarized_items" not in st.session_state:
-                                st.session_state.summarized_items = []
+                        uid = st.session_state.get("u_id")
+                        upass = st.session_state.get("u_pass")
+                        
+                        with st.spinner(f"إيلينا تفتح ملف {link['name']} وتقرأه..."):
+                            # طلب المهمة الجديدة من السيلينيوم لقراءة الـ PDF
+                            res = run_selenium_task(uid, upass, "scrape_pdf", link['url'])
                             
-                            # 2. إضافة الرابط للقائمة
-                            st.session_state.summarized_items.append(link['url'])
-                            
-                            # 3. 🔥 هاد هو السطر السحري الناقص 🔥
-                            # بنخزن اسم الملف اللي تم ضغطه عشان إيلينا تعرفه بالاسم
-                            st.session_state.last_summary_name = link['name']
-                            
-                            # بنضيف تنبيه في سجل الرسائل لإيلينا عشان "تصحصح"
-                            if "messages" not in st.session_state:
-                                st.session_state.messages = []
+                            if res and "pdf_text" in res:
+                                # تخزين النص في ذاكرة الـ PDF الخاصة بإيلينا
+                                if "pdf_memories" not in st.session_state:
+                                    st.session_state.pdf_memories = {}
                                 
-                            # إضافة رسالة مخفية أو تنبيه داخل الشات إن الطالب مهتم بهذا الملف
-                            st.session_state.messages.append({
-                                "role": "assistant", 
-                                "content": f"لقد لاحظت أنك مهتم بـ {link['name']}. أنا جاهزة لمناقشة محتواه معك بناءً على ما سحبته من المودل!"
-                            })
-                    
-                            st.success(f"✅ تم ربط {link['name']} بذاكرة إيلينا!")
-                            st.toast("جاهز للنقاش في الشات")
-                            st.rerun()
+                                st.session_state.pdf_memories[link['name']] = res["pdf_text"]
+                                
+                                # تذكير للرابط المكتمل
+                                if "summarized_items" not in st.session_state:
+                                    st.session_state.summarized_items = []
+                                st.session_state.summarized_items.append(link['url'])
+                                
+                                # تنبيه في الشات
+                                if "messages" not in st.session_state:
+                                    st.session_state.messages = []
+                                    
+                                st.session_state.messages.append({
+                                    "role": "assistant", 
+                                    "content": f"لقد قرأت محتوى ملف {link['name']} بالكامل يا إيثان! صار عندي علم بكل التفاصيل العلمية اللي جواه. اسألني عنه في أي وقت."
+                                })
+
+                                st.success(f"✅ تم سحب محتوى الملف بنجاح!")
+                                st.rerun()
+                            else:
+                                st.error("❌ تعذر سحب محتوى الملف. قد لا يكون ملف PDF نصي.")
                                                 
-                    # 3. الدرجات (الشغالة تمام)
-                    with tabs[2]:
-                        st.subheader("📊 تقرير الأداء الشامل (كويزات وامتحانات)")
+with tabs[2]:
+    st.subheader("📊 تقرير الأداء الشامل (كويزات وامتحانات)")
     
+    # زر سحب الدرجات
     if st.button("🚀 سحب كشف الدرجات التفصيلي", use_container_width=True):
-        # كل اللي تحت هاد السطر لازم يكون "مزيح" بنفس المستوى
         uid = st.session_state.get("u_id")
         upass = st.session_state.get("u_pass")
         
-        # التأكد من اختيار مادة (مهم جداً عشان ما يعطيك error)
+        # التأكد من اختيار مادة
         if "my_real_courses" in st.session_state and st.session_state.my_real_courses:
-            course_url = list(st.session_state.my_real_courses.values())[0] # بياخد أول مادة كافتراض
+            # نأخذ أول رابط مادة متاح لسحب الدرجات منه
+            course_url = list(st.session_state.my_real_courses.values())[0] 
             
             if uid and upass:
                 with st.spinner("إيلينا تدخل لدفتر الدرجات..."):
@@ -719,70 +746,79 @@ with tabs[1]:
         else:
             st.error("⚠️ لم نجد مواد مسجلة. قم بتحديث المقررات من التبويب الأول أولاً.")
 
-    # عرض النتائج (خارج بلوك الزر عشان تضل ظاهرة بعد الـ rerun)
+    # عرض النتائج (داخل التبويب أيضاً)
     if st.session_state.get("detailed_grades_text"):
+        st.markdown("---")
         st.markdown("### 📋 كشف الدرجات المكتشف:")
-        st.text_area("", st.session_state.detailed_grades_text, height=300)
+        st.text_area("البيانات الخام:", st.session_state.detailed_grades_text, height=200)
     
-    if st.button("🤖 اطلبي نصيحة إيلينا للتطوير", use_container_width=True):
-        with st.spinner("إيلينا تحلل أداءك الأكاديمي..."):
-            try:
-                prompt = f"""
-                هذه درجاتي المسحوبة من المودل:
-                {st.session_state.detailed_grades_text}
-                
-                بناءً على هذه النتائج، يا إيلينا:
-                1. قيمي أدائي العام.
-                2. حددي لي الأنشطة التي أحتاج للتركيز عليها.
-                3. أعطيني 3 نصائح للامتحان النهائي.
-                """
-                
-                # استدعاء الـ AI (Groq/Llama)
-                response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": "أنتِ إيلينا، خبيرة في الاستراتيجيات الدراسية."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                st.markdown("---")
-                st.success("📈 **تحليل الأداء من إيلينا:**")
-                st.write(response.choices[0].message.content)
-            except Exception as e:
-                st.error(f"خطأ في تحليل الدرجات: {e}")
+        # زر طلب النصيحة يظهر فقط إذا وجدت درجات
+        if st.button("🤖 اطلبي نصيحة إيلينا للتطوير", use_container_width=True):
+            with st.spinner("إيلينا تحلل أداءك الأكاديمي..."):
+                try:
+                    prompt = f"""
+                    هذه درجاتي المسحوبة من المودل:
+                    {st.session_state.detailed_grades_text}
+                    
+                    بناءً على هذه النتائج، يا إيلينا:
+                    1. قيمي أدائي العام.
+                    2. حددي لي الأنشطة التي أحتاج للتركيز عليها.
+                    3. أعطيني 3 نصائح للامتحان النهائي.
+                    """
+                    
+                    # استدعاء الـ AI
+                    response = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[
+                            {"role": "system", "content": "أنتِ إيلينا، خبيرة في الاستراتيجيات الدراسية وتخاطبين الطالب 'إيثان' بأسلوب مشجع."},
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+                    st.markdown("---")
+                    st.info("📈 **تحليل الأداء من إيلينا:**")
+                    st.write(response.choices[0].message.content)
+                except Exception as e:
+                    st.error(f"خطأ في تحليل الدرجات: {e}")
         
 # --- 4. الشات مع إيلينا ---
 with tabs[3]:
     st.subheader("🤖 إيلينا - مستشارك الأكاديمي الذكي")
-    st.caption("ذاكرة متصلة بكافة بياناتك الجامعية")
+    st.caption("ذاكرة متصلة بكافة بياناتك وملفات الـ PDF المسحوبة")
 
-    # 1. جلب البيانات من الذاكرة المركزية (Session State)
-    # نستخدم get لتجنب الأخطاء في حال كانت البيانات فارغة
+    # 1. جلب البيانات من الذاكرة المركزية
     schedule_data = st.session_state.get("user_schedule", "لا يوجد مواعيد قادمة.")
     grades_data = st.session_state.get("detailed_grades_text", "لم يتم سحب الدرجات بعد.")
     course_data = st.session_state.get("current_course_content", "لم يتم تصفح محتوى المادة.")
-    summarized_data = st.session_state.get("summarized_items", [])
-    files_info = ", ".join(summarized_data) if summarized_data else "لا توجد ملفات مختارة."
-
-    # 2. بناء "التعليمات البرمجية" (The System Prompt) 
-    # هذا الجزء هو المسؤول عن جعل إيلينا تفهم المحتوى العلمي وليس فقط العناوين
-    instruction = f"""
-    أنتِ إيلينا، مساعدة إيثان الأكاديمية الذكية. أنتِ مبرمجة لمساعدته في دراسته بناءً على بياناته الحقيقية.
     
-    📡 بيانات إيثان الحالية من المودل:
+    # --- جلب نصوص الـ PDF المسحوبة حديثاً ---
+    pdf_memories = st.session_state.get("pdf_memories", {})
+    pdf_context = ""
+    if pdf_memories:
+        for name, text in pdf_memories.items():
+            # نأخذ أول 2500 حرف من كل ملف لضمان عدم تجاوز حدود الـ AI
+            pdf_context += f"\n📄 محتوى ملف ({name}):\n{text[:2500]}\n---"
+    else:
+        pdf_context = "لا توجد نصوص PDF مسحوبة حالياً."
+
+    # 2. بناء "التعليمات البرمجية" (The System Prompt) المطور
+    instruction = f"""
+    أنتِ إيلينا، مساعدة إيثان الأكاديمية الذكية. مبرمجة لمساعدته بناءً على بياناته الحقيقية.
+    
+    📡 بيانات إيثان الحالية:
     ---
     📊 الدرجات: {str(grades_data)}
     📅 المخطط الزمني: {str(schedule_data)}
-    📖 محتوى المادة المسحوب (شروحات ولابات): 
-    {str(course_data[:4000])}
-    📄 ملفات اهتم بها: {files_info}
+    📖 وصف المادة العام: {str(course_data[:2000])}
+    
+    📚 نصوص ملفات الـ PDF المسحوبة (المحتوى التفصيلي):
+    {pdf_context}
     ---
 
     ⚠️ قواعد التشغيل الخاصة بكِ:
-    1. عندما يسألك إيثان عن 'Lab' أو درس معين، ابحثي في 'محتوى المادة' أعلاه. لا تقولي 'يوجد ملف'، بل اشرحي ما هو موجود في النص (الأهداف، الأدوات، أو الخطوات التعليمية).
-    2. إذا كان النص المسحوب مجرد عناوين، قولي: "إيثان، المعلومات المتوفرة هي العناوين فقط، إذا كان لديك تفاصيل داخل ملف PDF، يمكنك نسخ النص لي وسأقوم بتحليله فوراً".
-    3. ناديه دائماً باسم 'إيثان'.
-    4. كوني مشجعة، ذكية، وخبيرة في الاستراتيجيات الدراسية.
+    1. عندما يسألك إيثان عن 'Lab' أو درس، ابحثي أولاً في 'نصوص ملفات الـ PDF' أعلاه.
+    2. لا تكتفي بذكر العنوان؛ اشرحي له الخطوات، الأكواد، أو التعليمات الموجودة داخل الملفات.
+    3. إذا لم تجدي التفاصيل في الـ PDF، ابحثي في 'وصف المادة العام'.
+    4. ناديه دائماً باسم 'إيثان' بأسلوب تشجيعي وذكي.
     """
 
     # 3. عرض سجل المحادثة
@@ -794,16 +830,14 @@ with tabs[3]:
             st.markdown(message["content"])
 
     # 4. معالجة الإدخال الجديد
-    if chat_input := st.chat_input("اسأليني عن اللابات، الدرجات، أو اطلبي نصيحة دراسية..."):
-        # حفظ رسالة المستخدم
+    if chat_input := st.chat_input("اسأليني عن محتوى اللابات أو درجاتك..."):
         st.session_state.messages.append({"role": "user", "content": chat_input})
         with st.chat_message("user"):
             st.markdown(chat_input)
 
-        # توليد رد إيلينا
         with st.chat_message("assistant"):
             try:
-                with st.spinner("إيلينا تفكر وتحلل... ✍️"):
+                with st.spinner("إيلينا تحلل محتوى الملفات... ✍️"):
                     full_messages = [
                         {"role": "system", "content": instruction},
                         *st.session_state.messages
@@ -812,16 +846,16 @@ with tabs[3]:
                     response = client.chat.completions.create(
                         model="llama-3.3-70b-versatile", 
                         messages=full_messages,
-                        temperature=0.7 # جعل الردود أكثر حيوية
+                        temperature=0.6 
                     )
                     
                     answer = response.choices[0].message.content
                     st.markdown(answer)
                     st.session_state.messages.append({"role": "assistant", "content": answer})
             except Exception as e:
-                st.error(f"عذراً يا إيثان، واجهت مشكلة في الاتصال بعقلي الاصطناعي: {e}")
+                st.error(f"عذراً يا إيثان، حدث خطأ: {e}")
 
-    # 5. زر مسح الذاكرة (إعادة ضبط المحادثة)
+    # 5. زر مسح الذاكرة
     st.divider()
     if st.button("🗑️ مسح المحادثة بالكامل", use_container_width=True):
         st.session_state.messages = []
@@ -1001,6 +1035,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
