@@ -398,6 +398,13 @@ else:
 
 # 3. عرض الترحيب النهائي
 st.markdown(f"<h2>أهلاً {role_name} {badge}</h2>", unsafe_allow_html=True)
+
+# --- إضافة حالة الربط مع الجامعة هنا ---
+if st.session_state.get("is_synced") and st.session_state.get("student_name"):
+    st.success(f"🔗 متصل الآن بحسابك الجامعي باسم: **{st.session_state.student_name}**")
+else:
+    st.warning("⚠️ حسابك غير مرتبط بالمودل حالياً (توجه للإعدادات للمزامنة)")
+
 st.markdown("---")
 
 # --- نافذة الاشتراك (Upgrade Section) ---
@@ -493,7 +500,14 @@ with tabs[0]:
     # عرض البيانات والتحليل
     if st.session_state.get("user_schedule"):
         st.write("### 📋 جدول المهام القادمة:")
-        st.table(st.session_state.user_schedule)
+        
+        # ركز في المسافات هنا:
+        if isinstance(st.session_state.user_schedule, list) and len(st.session_state.user_schedule) > 0:
+            st.table(st.session_state.user_schedule) # هذه داخل الـ if الأولى
+        elif isinstance(st.session_state.user_schedule, str):
+            st.info(st.session_state.user_schedule) # هذه داخل الـ elif
+        else:
+            st.write("📅 لا توجد فعاليات قادمة حالياً. اضغط على زر المزامنة لتحديث البيانات.")
         
         if st.button("🧐 اطلب من إيلينا تحليل جدولك"):
             with st.spinner("إيلينا تدرس المواعيد لتنظيم وقتك..."):
@@ -821,31 +835,32 @@ with st.sidebar:
             except Exception as e:
                 st.info(f"📅 ينتهي اشتراكك في: {expire_str}")
     
-    st.markdown("---")
-    st.header("⚙️ المزامنة")
-    uid = st.text_input("الرقم الجامعي", value=st.session_state.get("u_id", ""))
-    upass = st.text_input("كلمة المرور", type="password", value=st.session_state.get("u_pass", ""))
-    
-    if st.button("🚀 Sync Now", use_container_width=True):
-        if uid and upass:
-            with st.spinner("جاري الاتصال وسحب بياناتك الشخصية..."):
-                res = run_selenium_task(uid, upass, "timeline")
+st.markdown("---")
+st.header("⚙️ المزامنة")
+uid = st.text_input("الرقم الجامعي", value=st.session_state.get("u_id", ""))
+upass = st.text_input("كلمة المرور", type="password", value=st.session_state.get("u_pass", ""))
+
+# هذا البلوك يجب أن يكون موازي لـ uid و upass
+if st.button("🚀 Sync Now", use_container_width=True):
+    if uid and upass:
+        with st.spinner("جاري المزامنة وسحب بياناتك من المودل..."):
+            res = run_selenium_task(uid, upass, "timeline")
+            if res and "courses" in res:
+                # تخزين البيانات في الـ Session
+                st.session_state.u_id = uid
+                st.session_state.u_pass = upass
+                st.session_state.my_real_courses = res['courses']
+                st.session_state.user_schedule = res.get('timeline_list', []) 
+                st.session_state.student_name = res.get('student_name', 'طالب مجتهد')
+                st.session_state.is_synced = True
                 
-                if res and "courses" in res:
-                    # نفترض أن الدالة رجعت اسم الطالب في متغير اسمه full_name
-                    student_name = res.get('student_name', 'إيثان') 
-                    
-                    st.session_state.update({
-                        "student_name": student_name, # تخزين الاسم هنا مهم جداً
-                        "my_real_courses": res['courses'], 
-                        "user_schedule": res.get('text', []),
-                        "u_id": uid, 
-                        "u_pass": upass,
-                        "is_synced": True # علامة نجاح المزامنة
-                    })
-                    
-                    st.success(f"✅ تم الربط بحسابك بنجاح يا {student_name}!")
-                    st.rerun()
+                st.success(f"✅ تم الربط بنجاح! أهلاً بك يا {st.session_state.student_name}")
+                time.sleep(1) # نعطي وقت للمستخدم يشوف الرسالة
+                st.rerun()
+            else:
+                st.error("❌ لم نتمكن من جلب البيانات، تأكد من صحة الحساب.")
+    else:
+        st.warning("⚠️ يرجى إدخال الرقم الجامعي وكلمة المرور.")
                     
                     # تحديث عداد المزامنات (فقط للمستخدم العادي)
                     db = load_db()
@@ -898,6 +913,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
