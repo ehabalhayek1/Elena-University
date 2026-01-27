@@ -225,7 +225,7 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage') # مهم جداً للسيرفرات
+    options.add_argument('--disable-dev-shm-usage')
     options.binary_location = "/usr/bin/chromium" 
 
     driver = None
@@ -233,7 +233,7 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
         service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        # 1. الدخول من خلال بوابة SSO
+        # 1. الدخول عبر بوابة SSO
         driver.get("https://sso.iugaza.edu.ps/saml/module.php/core/loginuserpass")
         time.sleep(3)
         
@@ -242,41 +242,65 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
         p_field.send_keys(password)
         p_field.send_keys(Keys.ENTER)
         
-        # انتظر الدخول والتحويل للمودل
-        time.sleep(10) 
+        # انتظر التحميل الكامل للمودل (زدنا الوقت لضمان تحميل التايم لاين)
+        time.sleep(12) 
 
-        # 2. التأكد من سحب الاسم الحقيقي (عشان ما يطلع مستخدم إيلينا)
-        student_name = "طالب جامعي"
-        try:
-            # نحاول نجيب الاسم من الـ usertext
-            student_name = driver.find_element(By.CSS_SELECTOR, ".usertext").text
-        except:
+        # 2. سحب الاسم الحقيقي بدقة
+        student_name = "مستخدم إيلينا"
+        for selector in [".usertext", ".userbutton span", ".username"]:
             try:
-                # محاولة ثانية لو كان الكلاس مختلف
-                student_name = driver.find_element(By.CSS_SELECTOR, ".userbutton span").text
-            except: pass
+                name_element = driver.find_element(By.CSS_SELECTOR, selector)
+                if name_element.text.strip():
+                    student_name = name_element.text.strip()
+                    break
+            except: continue
 
         if task_type == "timeline":
-            # 3. سحب الكورسات
+            # 3. سحب المخطط الزمني (الواجبات القادمة)
+            timeline_events = []
+            try:
+                # هذا السيلكتور يجلب أسماء الفعاليات من بلوك المخطط الزمني
+                event_elements = driver.find_elements(By.CSS_SELECTOR, "[data-region='event-list-item'] a")
+                for ev in event_elements:
+                    if ev.text.strip():
+                        timeline_events.append(ev.text.strip())
+            except: pass
+
+            # 4. سحب الكورسات
             links = driver.find_elements(By.CSS_SELECTOR, "a[href*='course/view.php?id=']")
             course_map = {}
             for l in links:
                 t = l.text.strip()
-                if len(t) > 5 and t not in course_map:
+                # فلترة لضمان سحب أسماء المواد فقط وليس الروابط الجانبية
+                if len(t) > 8 and t not in course_map: 
                     course_map[t] = l.get_attribute("href")
             
             return {
                 "courses": course_map,
-                "student_name": student_name, # أضفناه هنا!
-                "timeline_list": [] # يمكنك إضافة سحب التايم لاين هنا لاحقاً
+                "student_name": student_name,
+                "timeline_list": timeline_events # الآن التايم لاين مليان بيانات
             }
 
         elif task_type == "grades":
             if target_url:
+                # تحويل الرابط لصفحة الدرجات
                 g_url = target_url.replace("course/view.php", "grade/report/user/index.php")
                 driver.get(g_url)
+                time.sleep(7) # صفحة الدرجات ثقيلة وتحتاج وقت
+                
+                try:
+                    # سحب جدول الدرجات كـ Text أو HTML
+                    grade_table = driver.find_element(By.CSS_SELECTOR, "table.user-grade").text
+                    return {"data": grade_table, "student_name": student_name, "courses": {}}
+                except:
+                    return {"data": "لم يتم العثور على جدول الدرجات في هذه المادة.", "student_name": student_name}
+        
+        elif task_type == "browse": # سحب محتوى المادة عند التصفح
+            if target_url:
+                driver.get(target_url)
                 time.sleep(5)
-                return {"data": driver.find_element(By.TAG_NAME, "table").text, "student_name": student_name}
+                content = driver.find_element(By.ID, "region-main").text
+                return {"course_content": content, "student_name": student_name}
                 
     except Exception as e:
         return {"error": str(e)}
@@ -434,10 +458,10 @@ else:
 st.markdown(f"<h2>أهلاً {role_name} {badge}</h2>", unsafe_allow_html=True)
 
 # --- إضافة حالة الربط مع الجامعة هنا ---
-if st.session_state.get("is_synced") and st.session_state.get("student_name"):
-    st.success(f"🔗 متصل الآن بحسابك الجامعي باسم: **{st.session_state.student_name}**")
+if not st.session_state.get("is_synced", False):
+    st.warning("⚠️ حسابك غير مرتبط بالمودل حالياً...")
 else:
-    st.warning("⚠️ حسابك غير مرتبط بالمودل حالياً (توجه للإعدادات للمزامنة)")
+    st.success(f"🔗 متصل الآن بحسابك: {st.session_state.student_name}")
 
 st.markdown("---")
 
@@ -935,6 +959,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
