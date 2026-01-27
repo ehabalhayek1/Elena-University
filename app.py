@@ -564,69 +564,77 @@ tabs = st.tabs(["📅 المخطط الذكي", "📚 المقررات", "📊 �
 with tabs[0]:
     st.subheader("📅 المخطط الزمني الذكي")
     
-    # زر السحب من المودل
+    # زر السحب من المودل (استخدام الدالة الموحدة run_selenium_task)
     if st.button("🔄 سحب المخطط والفعاليات القادمة", use_container_width=True):
-        with st.spinner("إيلينا تجمع جدولك ومهامك القادمة..."):
-            try:
-                driver.get("https://moodle.iugaza.edu.ps/my/#")
-                time.sleep(4)
+        uid = st.session_state.get("u_id")
+        upass = st.session_state.get("u_pass")
+        
+        if uid and upass:
+            with st.spinner("إيلينا تجمع جدولك ومهامك القادمة..."):
+                # استدعاء المهمة من المحرك اللي برمجناه
+                res = run_selenium_task(uid, upass, "timeline")
                 
-                events = driver.find_elements(By.CSS_SELECTOR, ".event-list-item")
-                timeline_data = []
-                for event in events:
-                    name = event.find_element(By.CSS_SELECTOR, ".event-name").text
-                    date = event.find_element(By.CSS_SELECTOR, ".event-date").text
-                    timeline_data.append({"المهمة/المحاضرة": name, "الموعد": date})
-                
-                st.session_state.user_schedule = timeline_data
-                st.success("✅ تم سحب المخطط الزمني بنجاح!")
-                st.rerun() # لإظهار الجدول فوراً
-            except Exception as e:
-                st.error(f"فشل السحب: تأكد من تسجيل الدخول. الخطأ: {e}")
+                if res and "timeline" in res:
+                    st.session_state.user_schedule = res["timeline"]
+                    # حفظ أسماء المواد أيضاً لاستخدامها في التبويبات الأخرى
+                    if "courses" in res:
+                        st.session_state.my_real_courses = res["courses"]
+                        
+                    st.success("✅ تم تحديث المخطط الزمني والمقررات!")
+                    st.rerun()
+                else:
+                    st.error("❌ فشل السحب: تأكد من وجود فعاليات في المودل.")
+        else:
+            st.warning("⚠️ يرجى تسجيل الدخول أولاً من القائمة الجانبية.")
 
     # عرض البيانات والتحليل
-    if st.session_state.get("user_schedule"):
+    schedule_data = st.session_state.get("user_schedule")
+    
+    if schedule_data:
         st.write("### 📋 جدول المهام القادمة:")
         
-        # ركز في المسافات هنا:
-        if isinstance(st.session_state.user_schedule, list) and len(st.session_state.user_schedule) > 0:
-            st.table(st.session_state.user_schedule) # هذه داخل الـ if الأولى
-        elif isinstance(st.session_state.user_schedule, str):
-            st.info(st.session_state.user_schedule) # هذه داخل الـ elif
-        else:
-            st.write("📅 لا توجد فعاليات قادمة حالياً. اضغط على زر المزامنة لتحديث البيانات.")
+        if isinstance(schedule_data, list) and len(schedule_data) > 0:
+            st.table(schedule_data)
+            
+            # زر التحليل الذكي والتنقل
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🧐 تحليل سريع هنا"):
+                    with st.spinner("إيلينا تدرس المواعيد..."):
+                        try:
+                            schedule_text = "\n".join([f"- {i['المهمة/المحاضرة']} موعدها: {i['الموعد']}" for i in schedule_data])
+                            prompt = f"حللي جدولي الجامعي ورتبي أولوياتي:\n{schedule_text}"
+                            
+                            response = client.chat.completions.create(
+                                model="llama-3.3-70b-versatile",
+                                messages=[
+                                    {"role": "system", "content": "أنتِ إيلينا، خبيرة تنظيم وقت. أجيبي بأسلوب مشجع ومختصر."},
+                                    {"role": "user", "content": prompt}
+                                ]
+                            )
+                            st.info(response.choices[0].message.content)
+                        except: st.error("خطأ في الاتصال.")
+
+            with col2:
+                # 🔥 الزر المطلوب: تحليل والانتقال لتبويب الشات 🔥
+                if st.button("💬 حللي ما عليّ اليوم (Ask Elena)", use_container_width=True):
+                    # نضع رسالة جاهزة في الشات لتبدأ إيلينا بالتحليل فوراً هناك
+                    schedule_text = "\n".join([f"- {i['المهمة/المحاضرة']} موعدها: {i['الموعد']}" for i in schedule_data])
+                    if "messages" not in st.session_state: st.session_state.messages = []
+                    
+                    st.session_state.messages.append({
+                        "role": "user", 
+                        "content": f"حللي ما عليّ اليوم بناءً على هذا الجدول وانصحيني:\n{schedule_text}"
+                    })
+                    
+                    # تنبيه للنظام للانتقال (ملاحظة: تحتاج لتعريف التبويبات باستخدام Session State لتنتقل تلقائياً)
+                    st.success("تم إرسال الجدول لإيلينا! انتقل لتبويب Ask Elena 🤖")
+                    # st.rerun()
         
-        if st.button("🧐 اطلب من إيلينا تحليل جدولك"):
-            with st.spinner("إيلينا تدرس المواعيد لتنظيم وقتك..."):
-                try:
-                    # تحويل الجدول لنص يفهمه الذكاء الاصطناعي
-                    schedule_text = "\n".join([f"- {i['المهمة/المحاضرة']} موعدها: {i['الموعد']}" for i in st.session_state.user_schedule])
-                    
-                    prompt = f"""
-                    هذا هو المخطط الزمني لمهامي الجامعية القادمة:
-                    {schedule_text}
-                    
-                    بصفتك "إيلينا" المساعدة الذكية، قومي بما يلي:
-                    1. لخصي لي أهم المواعيد القريبة.
-                    2. اقترحي لي ترتيباً للأولويات (شو أدرس أول؟).
-                    3. أعطني نصيحة لتجنب ضغط الدراسة بناءً على هذه المواعيد.
-                    أجيبيني بأسلوبك المشجع والمرتب.
-                    """
-                    
-                    response = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=[
-                            {"role": "system", "content": "أنتِ إيلينا، مساعدة أكاديمية ذكية جداً في تنظيم الوقت."},
-                            {"role": "user", "content": prompt}
-                        ]
-                    )
-                    
-                    st.markdown("---")
-                    st.info("💡 **تحليل إيلينا الذكي:**")
-                    st.write(response.choices[0].message.content)
-                    
-                except Exception as e:
-                    st.error(f"عذراً، واجهت إيلينا مشكلة في التحليل: {e}")
+        elif isinstance(schedule_data, str):
+            st.info(schedule_data)
+    else:
+        st.write("📅 لا توجد بيانات. اضغط على زر السحب للتحديث.")
         
 # --- داخل تبويب المساقات ---
 with tabs[1]:
@@ -720,65 +728,74 @@ with tabs[1]:
                                                 
 with tabs[2]:
     st.subheader("📊 تقرير الأداء الشامل (كويزات وامتحانات)")
-    
-    # زر سحب الدرجات
-    if st.button("🚀 سحب كشف الدرجات التفصيلي", use_container_width=True):
-        uid = st.session_state.get("u_id")
-        upass = st.session_state.get("u_pass")
+    st.caption("اختر المادة لسحب كشف درجاتها وتحليله بواسطة إيلينا")
+
+    # 1. فحص إذا كانت المواد موجودة أصلاً
+    if "my_real_courses" in st.session_state and st.session_state.my_real_courses:
         
-        # التأكد من اختيار مادة
-        if "my_real_courses" in st.session_state and st.session_state.my_real_courses:
-            # نأخذ أول رابط مادة متاح لسحب الدرجات منه
-            course_url = list(st.session_state.my_real_courses.values())[0] 
+        # قائمة لاختيار المادة المراد سحب درجاتها
+        course_names = list(st.session_state.my_real_courses.keys())
+        selected_course_for_grades = st.selectbox("اختر المادة:", course_names, key="grade_selector")
+        target_course_url = st.session_state.my_real_courses[selected_course_for_grades]
+
+        # زر سحب الدرجات للمادة المختارة
+        if st.button(f"🚀 سحب درجات {selected_course_for_grades}", use_container_width=True):
+            uid = st.session_state.get("u_id")
+            upass = st.session_state.get("u_pass")
             
             if uid and upass:
-                with st.spinner("إيلينا تدخل لدفتر الدرجات..."):
-                    res = run_selenium_task(uid, upass, "grades", course_url) 
+                with st.spinner(f"إيلينا تفتح سجل درجات {selected_course_for_grades}..."):
+                    # إرسال رابط المادة المختارة تحديداً لمهمة الدرجات
+                    res = run_selenium_task(uid, upass, "grades", target_course_url) 
                     
                     if res and "data" in res:
+                        # تخزين الدرجات مع اسم المادة عشان إيلينا تعرف عن شو بتحكي
                         st.session_state.detailed_grades_text = res["data"]
-                        st.success("تم جلب كافة درجات الكويزات والامتحانات!")
+                        st.session_state.last_grade_course = selected_course_for_grades
+                        st.success(f"✅ تم جلب درجات مادة {selected_course_for_grades} بنجاح!")
                         st.rerun()
                     else:
-                        st.error("❌ فشل سحب الدرجات. تأكد أن المادة تحتوي على درجات مرصودة.")
+                        st.error("❌ فشل سحب الدرجات. تأكد أن المادة تحتوي على جدول درجات.")
             else:
                 st.warning("⚠️ سجل دخول أولاً من القائمة الجانبية!")
-        else:
-            st.error("⚠️ لم نجد مواد مسجلة. قم بتحديث المقررات من التبويب الأول أولاً.")
+    else:
+        st.info("💡 يا إيثان، روح على التبويب الأول واضغط 'تحديث قائمة المقررات' عشان تظهر المواد هون.")
 
-    # عرض النتائج (داخل التبويب أيضاً)
+    # 2. عرض النتائج وتحليل إيلينا
     if st.session_state.get("detailed_grades_text"):
-        st.markdown("---")
-        st.markdown("### 📋 كشف الدرجات المكتشف:")
-        st.text_area("البيانات الخام:", st.session_state.detailed_grades_text, height=200)
+        current_course = st.session_state.get("last_grade_course", "المادة المختارة")
+        st.markdown(f"### 📋 كشف درجات: {current_course}")
+        
+        # عرض الدرجات في منطقة نصية
+        st.text_area("البيانات الخام من المودل:", st.session_state.detailed_grades_text, height=200)
     
-        # زر طلب النصيحة يظهر فقط إذا وجدت درجات
+        # زر طلب نصيحة إيلينا
         if st.button("🤖 اطلبي نصيحة إيلينا للتطوير", use_container_width=True):
-            with st.spinner("إيلينا تحلل أداءك الأكاديمي..."):
+            with st.spinner("إيلينا تراجع درجاتك وتقارنها بالمعايير..."):
                 try:
                     prompt = f"""
-                    هذه درجاتي المسحوبة من المودل:
+                    أهلاً إيلينا، هذه درجاتي في مادة ({current_course}) المسحوبة من المودل:
+                    ---
                     {st.session_state.detailed_grades_text}
-                    
-                    بناءً على هذه النتائج، يا إيلينا:
-                    1. قيمي أدائي العام.
-                    2. حددي لي الأنشطة التي أحتاج للتركيز عليها.
-                    3. أعطيني 3 نصائح للامتحان النهائي.
+                    ---
+                    بناءً على هذه الأرقام:
+                    1. ما هو تقديري الحالي في هذه المادة؟
+                    2. ما هي نقاط قوتي ونقاط ضعفي بناءً على العلامات (مثلاً: علامة الكويز نازلة بس الامتحان عالية)؟
+                    3. أعطيني خطة عمل من 3 خطوات لتحسين علامتي في الامتحان النهائي لهذه المادة تحديداً.
                     """
                     
-                    # استدعاء الـ AI
                     response = client.chat.completions.create(
                         model="llama-3.3-70b-versatile",
                         messages=[
-                            {"role": "system", "content": "أنتِ إيلينا، خبيرة في الاستراتيجيات الدراسية وتخاطبين الطالب 'إيثان' بأسلوب مشجع."},
+                            {"role": "system", "content": "أنتِ إيلينا، مستشارة أكاديمية ذكية جداً. تحللين الأرقام بدقة وتخاطبين إيثان بأسلوب محفز وعملي."},
                             {"role": "user", "content": prompt}
                         ]
                     )
                     st.markdown("---")
-                    st.info("📈 **تحليل الأداء من إيلينا:**")
+                    st.success(f"📈 **تحليل إيلينا لمادة {current_course}:**")
                     st.write(response.choices[0].message.content)
                 except Exception as e:
-                    st.error(f"خطأ في تحليل الدرجات: {e}")
+                    st.error(f"حدث خطأ في التحليل: {e}")
         
 # --- 4. الشات مع إيلينا ---
 with tabs[3]:
@@ -1035,6 +1052,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
