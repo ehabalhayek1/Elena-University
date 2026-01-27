@@ -31,6 +31,19 @@ cookies = EncryptedCookieManager(prefix="elena/", password="EM2006_secret_key")
 if not cookies.ready():
     st.stop()
 
+if "driver" not in st.session_state:
+    with st.spinner("جاري إيقاظ إيلينا... 👑"):
+        options = Options()
+        options.add_argument('--headless')
+        options.add_argument('--no-sandbox')
+        options.add_argument('--disable-dev-shm-usage')
+        # ملاحظة: إذا كنت بترفع الكود على Streamlit Cloud، لازم تضل مستخدم Chromium
+        try:
+            service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+            st.session_state.driver = webdriver.Chrome(service=service, options=options)
+        except Exception as e:
+            st.error(f"فشل تشغيل المتصفح: {e}")
+
 def get_course_content(course_url):
     try:
         # 1. الدخول لرابط المادة المحدد
@@ -874,6 +887,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
