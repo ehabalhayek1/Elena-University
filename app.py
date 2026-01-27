@@ -225,30 +225,64 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
     options = Options()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage') # مهم جداً للسيرفرات
     options.binary_location = "/usr/bin/chromium" 
+
+    driver = None
     try:
         service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
         driver = webdriver.Chrome(service=service, options=options)
+        
+        # 1. الدخول من خلال بوابة SSO
         driver.get("https://sso.iugaza.edu.ps/saml/module.php/core/loginuserpass")
-        time.sleep(2)
+        time.sleep(3)
+        
         driver.find_element(By.ID, "username").send_keys(username)
         p_field = driver.find_element(By.ID, "password")
         p_field.send_keys(password)
         p_field.send_keys(Keys.ENTER)
-        time.sleep(8)
-        if task_type == "timeline":
-            body = driver.find_element(By.TAG_NAME, "body").text
-            links = driver.find_elements(By.CSS_SELECTOR, "a[href*='course/view.php?id=']")
-            course_map = {l.text.strip(): l.get_attribute("href") for l in links if len(l.text) > 5}
-            return {"text": body, "courses": course_map}
-        elif task_type == "grades":
-            g_url = target_url.replace("course/view.php", "grade/report/user/index.php")
-            driver.get(g_url)
-            time.sleep(4)
-            return {"data": driver.find_element(By.TAG_NAME, "table").text}
-    except Exception as e: return {"error": str(e)}
-    finally: driver.quit()
+        
+        # انتظر الدخول والتحويل للمودل
+        time.sleep(10) 
 
+        # 2. التأكد من سحب الاسم الحقيقي (عشان ما يطلع مستخدم إيلينا)
+        student_name = "طالب جامعي"
+        try:
+            # نحاول نجيب الاسم من الـ usertext
+            student_name = driver.find_element(By.CSS_SELECTOR, ".usertext").text
+        except:
+            try:
+                # محاولة ثانية لو كان الكلاس مختلف
+                student_name = driver.find_element(By.CSS_SELECTOR, ".userbutton span").text
+            except: pass
+
+        if task_type == "timeline":
+            # 3. سحب الكورسات
+            links = driver.find_elements(By.CSS_SELECTOR, "a[href*='course/view.php?id=']")
+            course_map = {}
+            for l in links:
+                t = l.text.strip()
+                if len(t) > 5 and t not in course_map:
+                    course_map[t] = l.get_attribute("href")
+            
+            return {
+                "courses": course_map,
+                "student_name": student_name, # أضفناه هنا!
+                "timeline_list": [] # يمكنك إضافة سحب التايم لاين هنا لاحقاً
+            }
+
+        elif task_type == "grades":
+            if target_url:
+                g_url = target_url.replace("course/view.php", "grade/report/user/index.php")
+                driver.get(g_url)
+                time.sleep(5)
+                return {"data": driver.find_element(By.TAG_NAME, "table").text, "student_name": student_name}
+                
+    except Exception as e:
+        return {"error": str(e)}
+    finally:
+        if driver:
+            driver.quit()
 # --- 4. واجهة تسجيل الدخول المطورة ---
 if not st.session_state.get("is_logged_in"):
     _, center_col, _ = st.columns([1, 2, 1])
@@ -901,6 +935,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
