@@ -665,13 +665,20 @@ with tabs[1]:
                     btn_label = "✅ ملخص" if is_done else "🪄 تلخيص"
                     
                     if st.button(btn_label, key=f"sum_{i}", use_container_width=True):
-                        # هنا نضع سطر التلخيص الفعلي (إرسال الرابط للـ AI)
-                        # لتبسيط الأمر الآن، سنعتبره تم تلخيصه
-                        if "summarized_items" not in st.session_state:
-                            st.session_state.summarized_items = []
-                        st.session_state.summarized_items.append(link['url'])
-                        st.toast(f"تمت إضافة {link['name']} لذاكرة إيلينا!")
-                        st.rerun()
+                        with st.spinner("إيلينا تقرأ وتلخص..."):
+                            if "summarized_items" not in st.session_state:
+                                st.session_state.summarized_items = []
+        
+                            # إضافة الرابط للذاكرة
+                            st.session_state.summarized_items.append(link['url'])
+                 
+                            # تخزين "آخر طلب" عشان إيلينا تشوفه في الشات
+                            st.session_state.last_summary = f"لقد لخصت لك للتو ملف: {link['name']}"
+                
+                            st.success(f"✨ تم إضافة {link['name']} لذاكرتي!")
+                            st.toast("تم التلخيص بنجاح!")
+                            time.sleep(1) # نعطي وقت للمستخدم يشوف الرسالة
+                            st.rerun() # تحديث الواجهة لتغيير شكل الزر لـ "✅ ملخص"
                             
 # 3. الدرجات (الشغالة تمام)
 with tabs[2]:
@@ -735,68 +742,77 @@ with tabs[2]:
         
 # --- 4. الشات مع إيلينا ---
 with tabs[3]:
-        st.caption("🤖 إيلينا - مستشارك الأكاديمي الشامل (بذاكرة متصلة)")
-        
-        # 1. تجميع البيانات من النوافذ الأخرى (الذاكرة المركزية)
-        schedule_context = st.session_state.get("user_schedule", "لا يوجد بيانات جدول حالياً.")
-        # تأكدنا هنا من استخدام الاسم الصحيح للدرجات
-        grades_context = st.session_state.get("detailed_grades", "لا يوجد بيانات علامات حالياً.")
-        last_summary = st.session_state.get("last_summary", "لم يتم تلخيص ملفات مؤخراً.")
+    st.subheader("🤖 إيلينا - مستشارك الأكاديمي الشامل")
+    
+    # 1. تجميع البيانات من الذاكرة المركزية (تعديل المسميات لتطابق السحب)
+    schedule_context = st.session_state.get("user_schedule", "لا يوجد بيانات جدول حالياً.")
+    
+    # جلب النص المسحوب من زر الدرجات التفصيلي
+    grades_context = st.session_state.get("detailed_grades_text", "لا يوجد بيانات علامات تفصيلية حالياً.")
+    
+    # جلب محتوى المادة (تصفح المحتوى)
+    course_content_context = st.session_state.get("current_course_content", "لم يتم تصفح محتوى مادة مؤخراً.")
+    
+    # جلب أسماء الملفات التي تم طلب تلخيصها
+    summarized_files = st.session_state.get("summarized_items", [])
+    files_context = ", ".join(summarized_files) if summarized_files else "لا يوجد ملفات ملخصة حالياً."
 
-        # 2. إعداد "السياق" 
-        instruction = f"""
-        أنتِ إيلينا، مساعدة أكاديمية ذكية وودودة لطلاب الجامعة، مبرمجة بواسطة إيثان.
-        لديكِ وصول كامل لبيانات الطالب الحالية في التطبيق:
-        
-        📅 المخطط الزمني للطالب:
-        {str(schedule_context)}
-        
-        📊 سجل الدرجات التفصيلي:
-        {str(grades_context)}
-        
-        📝 آخر ملخص لمادة دراسية:
-        {str(last_summary)}
-        
-        استخدمي هذه المعلومات للإجابة على أي سؤال. إذا سألك الطالب 'شو علي دراسة؟' أو 'كيف وضعي في المواد؟' استخدمي البيانات أعلاه للرد بدقة.
-        ناديه باسمه 'إيثان' دائماً.
-        """
+    # 2. إعداد "السياق" المطور (Instruction)
+    instruction = f"""
+    أنتِ إيلينا، مساعدة أكاديمية ذكية وودودة لطلاب الجامعة، مبرمجة بواسطة إيثان.
+    لديكِ وصول لبيانات الطالب الحالية:
+    
+    📅 المخطط الزمني (الواجبات):
+    {str(schedule_context)}
+    
+    📊 سجل الدرجات التفصيلي المسحوب:
+    {str(grades_context)}
+    
+    📖 محتوى المادة الحالي (المحاضرات):
+    {str(course_content_context[:3000])} 
+    
+    📄 الملفات التي اهتم بها الطالب مؤخراً:
+    {files_context}
+    
+    استخدمي هذه المعلومات بدقة. إذا سألك الطالب عن "Lab 5" أو "الدرجات"، ابحثي عنها في البيانات أعلاه.
+    ناديه باسمه 'إيثان' دائماً وبطريقة تشجيعية.
+    """
 
-        # تأكد من أن بقية الكود (messages, chat_input) داخل نفس مستوى الإزاحة
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
+    # --- نظام المحادثة ---
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
 
-        # عرض الرسائل السابقة
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-        if chat_input := st.chat_input("اسأل إيلينا عن أي شيء في حسابك..."):
-            st.session_state.messages.append({"role": "user", "content": chat_input})
-            with st.chat_message("user"):
-                st.markdown(chat_input)
+    if chat_input := st.chat_input("اسأل إيلينا عن أي شيء..."):
+        st.session_state.messages.append({"role": "user", "content": chat_input})
+        with st.chat_message("user"):
+            st.markdown(chat_input)
 
-            with st.chat_message("assistant"):
-                try:
-                    with st.spinner("إيلينا تحلل بياناتك وتكتب... ✍️"):
-                        full_messages = [
-                            {"role": "system", "content": instruction},
-                            *st.session_state.messages
-                        ]
-                        
-                        chat_completion = client.chat.completions.create(
-                            model="llama-3.3-70b-versatile", 
-                            messages=full_messages,
-                        )
-                        response_text = chat_completion.choices[0].message.content
-                        st.markdown(response_text)
-                        st.session_state.messages.append({"role": "assistant", "content": response_text})
-                except Exception as e:
-                    st.error(f"عذراً، حدث خطأ في الاتصال: {e}")
+        with st.chat_message("assistant"):
+            try:
+                with st.spinner("إيلينا تحلل بياناتك... ✍️"):
+                    # إرسال التعليمات مع كامل تاريخ المحادثة
+                    full_messages = [
+                        {"role": "system", "content": instruction},
+                        *st.session_state.messages
+                    ]
+                    
+                    chat_completion = client.chat.completions.create(
+                        model="llama-3.3-70b-versatile", 
+                        messages=full_messages,
+                    )
+                    response_text = chat_completion.choices[0].message.content
+                    st.markdown(response_text)
+                    st.session_state.messages.append({"role": "assistant", "content": response_text})
+            except Exception as e:
+                st.error(f"عذراً يا إيثان، حدث خطأ: {e}")
 
-        # زر مسح الذاكرة
-        if st.button("🗑️ مسح محادثة إيلينا"):
-            st.session_state.messages = []
-            st.rerun()
+    if st.button("🗑️ مسح محادثة إيلينا"):
+        st.session_state.messages = []
+        st.rerun()
                 
 # --- 5. لوحة التحكم (المطور فقط) ---
 with tabs[4]:
@@ -972,6 +988,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
