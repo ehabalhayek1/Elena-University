@@ -854,28 +854,28 @@ if st.button("🚀 Sync Now", use_container_width=True):
                 st.session_state.student_name = res.get('student_name', 'طالب مجتهد')
                 st.session_state.is_synced = True
                 
+                try:
+                    db = load_db()
+                    current_u = st.session_state.get("user_email") # تأكد أن هذا المتغير موجود عندك
+                    if current_u and st.session_state.user_role != "developer" and st.session_state.user_status != "Prime":
+                        if current_u not in db:
+                            db[current_u] = {}
+                        db[current_u]["sync_count"] = db[current_u].get("sync_count", 0) + 1
+                        save_db(db)
+                except Exception as db_err:
+                    # نكتفي بتحذير بسيط إذا فشل تحديث العداد حتى لا تتعطل المزامنة
+                    print(f"Database update skipped: {db_err}")
+
+                # 3. رسالة النجاح النهائية
                 st.success(f"✅ تم الربط بنجاح! أهلاً بك يا {st.session_state.student_name}")
-                time.sleep(1) # نعطي وقت للمستخدم يشوف الرسالة
+                time.sleep(1) # وقت قصير للمستخدم ليقرأ الرسالة
                 st.rerun()
             else:
-                st.error("❌ لم نتمكن من جلب البيانات، تأكد من صحة الحساب.")
+                st.error("❌ لم نتمكن من جلب البيانات، تأكد من صحة الحساب أو حالة المودل.")
     else:
-        st.warning("⚠️ يرجى إدخال الرقم الجامعي وكلمة المرور.")
-                    
-                    # تحديث عداد المزامنات (فقط للمستخدم العادي)
-                    db = load_db()
-                    if st.session_state.user_role != "developer" and st.session_state.user_status != "Prime":
-                        db[current_u]["sync_count"] = db.get(current_u, {}).get("sync_count", 0) + 1
-                        save_db(db)
-                    
-                    st.success("تمت المزامنة بنجاح!")
-                    st.rerun()
-                else:
-                    st.error("فشلت المزامنة، تأكد من البيانات.")
-        else:
-            st.warning("يرجى إدخال الرقم الجامعي وكلمة المرور.")
+        st.warning("⚠️ يرجى إدخال الرقم الجامعي وكلمة المرور أولاً.")
 
-    st.markdown("---")
+st.markdown("---")
     
     # --- 1. الـ Expander (تأكد من وجود 4 مسافات قبل with) ---
     with st.expander("⚙️ الإعدادات المتقدمة"):
@@ -913,6 +913,7 @@ if st.button("🚀 Sync Now", use_container_width=True):
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
