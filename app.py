@@ -802,7 +802,7 @@ def get_local_time():
 # --- 2. السايدبار (مستقل تماماً وفي مستوى الصفر) ---
 with st.sidebar:
     st.markdown("---")
-    # عرض تاريخ انتهاء الاشتراك بتنسيق لوني احترافي
+    # 1. عرض تاريخ انتهاء الاشتراك بتنسيق لوني احترافي
     if st.session_state.get("user_status") == "Prime":
         db = load_db() 
         current_u = st.session_state.get("username", "user")
@@ -832,12 +832,12 @@ with st.sidebar:
                     st.session_state.user_status = "Standard"
                     st.error("⚠️ **انتهى الاشتراك!**\n\nتم تحويل حسابك للوضع العادي.")
                     st.rerun() 
-                except Exception as e:
-                    st.info(f"📅 ينتهي اشتراكك في: {expire_str}")
+            except Exception as e:
+                st.info(f"📅 ينتهي اشتراكك في: {expire_str}")
 
     st.markdown("---")
     
-    # 2. قسم المزامنة (أصبح الآن داخل السايدبار)
+    # 2. قسم المزامنة
     st.header("⚙️ المزامنة")
     uid = st.text_input("الرقم الجامعي", value=st.session_state.get("u_id", ""))
     upass = st.text_input("كلمة المرور", type="password", value=st.session_state.get("u_pass", ""))
@@ -865,7 +865,8 @@ with st.sidebar:
                             if email_u not in db: db[email_u] = {}
                             db[email_u]["sync_count"] = db[email_u].get("sync_count", 0) + 1
                             save_db(db)
-                    except: pass
+                    except:
+                        pass
 
                     st.success(f"✅ أهلاً {st.session_state.student_name}")
                     time.sleep(1)
@@ -877,7 +878,7 @@ with st.sidebar:
 
     st.markdown("---")
     
-    # 3. الإعدادات المتقدمة (داخل السايدبار)
+    # 3. الإعدادات المتقدمة
     with st.expander("⚙️ الإعدادات المتقدمة"):
         if st.button("🔴 تسجيل الخروج", use_container_width=True):
             st.components.v1.html(
@@ -896,6 +897,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
