@@ -657,28 +657,33 @@ with tabs[2]:
     st.subheader("📊 تقرير الأداء الشامل (كويزات وامتحانات)")
     
     if st.button("🚀 سحب كشف الدرجات التفصيلي", use_container_width=True):
-    uid = st.session_state.get("u_id")
-    upass = st.session_state.get("u_pass")
-    
-    if uid and upass:
-        with st.spinner("إيلينا تدخل لدفتر الدرجات..."):
-            # بننادي المحرك بتاعنا ونقله بدنا الدرجات للمادة المختارة
-            res = run_selenium_task(uid, upass, "grades", course_url) 
+        # كل اللي تحت هاد السطر لازم يكون "مزيح" بنفس المستوى
+        uid = st.session_state.get("u_id")
+        upass = st.session_state.get("u_pass")
+        
+        # التأكد من اختيار مادة (مهم جداً عشان ما يعطيك error)
+        if "my_real_courses" in st.session_state and st.session_state.my_real_courses:
+            course_url = list(st.session_state.my_real_courses.values())[0] # بياخد أول مادة كافتراض
             
-            if res and "data" in res:
-                # تحويل النص المسحوب لجدول بسيط (أو تخزينه كنص)
-                st.session_state.detailed_grades_text = res["data"]
-                st.success("تم جلب كافة درجات الكويزات والامتحانات!")
-                st.rerun()
+            if uid and upass:
+                with st.spinner("إيلينا تدخل لدفتر الدرجات..."):
+                    res = run_selenium_task(uid, upass, "grades", course_url) 
+                    
+                    if res and "data" in res:
+                        st.session_state.detailed_grades_text = res["data"]
+                        st.success("تم جلب كافة درجات الكويزات والامتحانات!")
+                        st.rerun()
+                    else:
+                        st.error("❌ فشل سحب الدرجات. تأكد أن المادة تحتوي على درجات مرصودة.")
             else:
-                st.error("❌ فشل سحب الدرجات. تأكد أن المادة تحتوي على درجات مرصودة.")
-    else:
-        st.warning("⚠️ سجل دخول أولاً!")
+                st.warning("⚠️ سجل دخول أولاً من القائمة الجانبية!")
+        else:
+            st.error("⚠️ لم نجد مواد مسجلة. قم بتحديث المقررات من التبويب الأول أولاً.")
 
-# عرض النتائج وتحليل إيلينا
-if st.session_state.get("detailed_grades_text"):
-    st.write("### 📋 كشف الدرجات المكتشف:")
-    st.text_area("الدرجات المسحوبة:", st.session_state.detailed_grades_text, height=200)
+    # عرض النتائج (خارج بلوك الزر عشان تضل ظاهرة بعد الـ rerun)
+    if st.session_state.get("detailed_grades_text"):
+        st.markdown("### 📋 كشف الدرجات المكتشف:")
+        st.text_area("", st.session_state.detailed_grades_text, height=300)
     
     if st.button("🤖 اطلبي نصيحة إيلينا للتطوير", use_container_width=True):
         with st.spinner("إيلينا تحلل أداءك الأكاديمي..."):
@@ -946,6 +951,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
