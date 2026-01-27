@@ -564,22 +564,19 @@ tabs = st.tabs(["📅 المخطط الذكي", "📚 المقررات", "📊 �
 with tabs[0]:
     st.subheader("📅 المخطط الزمني الذكي")
     
-    # زر السحب من المودل (استخدام الدالة الموحدة run_selenium_task)
+    # زر السحب من المودل
     if st.button("🔄 سحب المخطط والفعاليات القادمة", use_container_width=True):
         uid = st.session_state.get("u_id")
         upass = st.session_state.get("u_pass")
         
         if uid and upass:
             with st.spinner("إيلينا تجمع جدولك ومهامك القادمة..."):
-                # استدعاء المهمة من المحرك اللي برمجناه
                 res = run_selenium_task(uid, upass, "timeline")
                 
                 if res and "timeline" in res:
                     st.session_state.user_schedule = res["timeline"]
-                    # حفظ أسماء المواد أيضاً لاستخدامها في التبويبات الأخرى
                     if "courses" in res:
                         st.session_state.my_real_courses = res["courses"]
-                        
                     st.success("✅ تم تحديث المخطط الزمني والمقررات!")
                     st.rerun()
                 else:
@@ -596,45 +593,59 @@ with tabs[0]:
         if isinstance(schedule_data, list) and len(schedule_data) > 0:
             st.table(schedule_data)
             
-            # زر التحليل الذكي والتنقل
+            # صف الأزرار
             col1, col2 = st.columns(2)
             with col1:
                 if st.button("🧐 تحليل سريع هنا"):
                     with st.spinner("إيلينا تدرس المواعيد..."):
                         try:
-                            schedule_text = "\n".join([f"- {i['المهمة/المحاضرة']} موعدها: {i['الموعد']}" for i in schedule_data])
-                            prompt = f"حللي جدولي الجامعي ورتبي أولوياتي:\n{schedule_text}"
-                            
+                            # بناء النص للتحليل السريع
+                            stext = "\n".join([f"- {i.get('المهمة/المحاضرة', 'مهمة')} ({i.get('الموعد', 'ميعاد غير محدد')})" for i in schedule_data])
+                            prompt = f"حللي جدولي الجامعي ورتبي أولوياتي بأسلوب مشجع:\n{stext}"
                             response = client.chat.completions.create(
                                 model="llama-3.3-70b-versatile",
                                 messages=[
-                                    {"role": "system", "content": "أنتِ إيلينا، خبيرة تنظيم وقت. أجيبي بأسلوب مشجع ومختصر."},
+                                    {"role": "system", "content": "أنتِ إيلينا، خبيرة تنظيم وقت وتخاطبين إيثان."},
                                     {"role": "user", "content": prompt}
                                 ]
                             )
                             st.info(response.choices[0].message.content)
-                        except: st.error("خطأ في الاتصال.")
+                        except: st.error("خطأ في الاتصال بالـ AI.")
 
             with col2:
-                # 🔥 الزر المطلوب: تحليل والانتقال لتبويب الشات 🔥
+                # زر الانتقال للشات
                 if st.button("💬 حللي ما عليّ اليوم (Ask Elena)", use_container_width=True):
-                    # نضع رسالة جاهزة في الشات لتبدأ إيلينا بالتحليل فوراً هناك
-                    schedule_text = "\n".join([f"- {i['المهمة/المحاضرة']} موعدها: {i['الموعد']}" for i in schedule_data])
-                    if "messages" not in st.session_state: st.session_state.messages = []
-                    
-                    st.session_state.messages.append({
-                        "role": "user", 
-                        "content": f"حللي ما عليّ اليوم بناءً على هذا الجدول وانصحيني:\n{schedule_text}"
-                    })
-                    
-                    # تنبيه للنظام للانتقال (ملاحظة: تحتاج لتعريف التبويبات باستخدام Session State لتنتقل تلقائياً)
-                    st.success("تم إرسال الجدول لإيلينا! انتقل لتبويب Ask Elena 🤖")
-                    # st.rerun()
-        
-        elif isinstance(schedule_data, str):
-            st.info(schedule_data)
+                    try:
+                        # بناء النص لإرساله لتبويب إيلينا
+                        items = []
+                        for i in schedule_data:
+                            if isinstance(i, dict):
+                                n = i.get('المهمة/المحاضرة', 'مهمة')
+                                d = i.get('الموعد', 'غير محدد')
+                                items.append(f"- {n} بتاريخ {d}")
+                            else:
+                                items.append(f"- {str(i)}")
+                        
+                        full_schedule_text = "\n".join(items)
+            
+                        if "messages" not in st.session_state: 
+                            st.session_state.messages = []
+                        
+                        # إضافة الرسالة لذاكرة الشات
+                        st.session_state.messages.append({
+                            "role": "user", 
+                            "content": f"إيلينا، هاد جدولي لليوم، حلليه وانصحيني شو أعمل:\n{full_schedule_text}"
+                        })
+                        
+                        st.success("تم إرسال الجدول! انتقل لتبويب Ask Elena 🤖")
+                        st.balloons() 
+                        
+                    except Exception as e:
+                        st.error(f"حدث خطأ: {str(e)}")
+        else:
+            st.info("📅 الجدول فارغ حالياً.")
     else:
-        st.write("📅 لا توجد بيانات. اضغط على زر السحب للتحديث.")
+        st.write("📅 اضغط على زر السحب لتحديث بياناتك.")
         
 # --- داخل تبويب المساقات ---
 with tabs[1]:
@@ -1052,6 +1063,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
