@@ -32,41 +32,53 @@ if not cookies.ready():
     st.stop()
 
 if "driver" not in st.session_state:
-    with st.spinner("جاري إيقاظ إيلينا... 👑"):
+    with st.spinner("جاري تهيئة إيلينا على السيرفر السحابي... 👑"):
         options = Options()
-        options.add_argument('--headless')
+        options.add_argument('--headless') # ضروري جداً على السيرفر
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
-        # ملاحظة: إذا كنت بترفع الكود على Streamlit Cloud، لازم تضل مستخدم Chromium
+        options.add_argument('--disable-gpu')
+        
+        # المسار الافتراضي لكروميوم على سيرفرات ستريم ليت
+        options.binary_location = "/usr/bin/chromium" 
+
         try:
+            # استخدام ChromeDriverManager مع تحديد ChromeType.CHROMIUM
             service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
             st.session_state.driver = webdriver.Chrome(service=service, options=options)
         except Exception as e:
-            st.error(f"فشل تشغيل المتصفح: {e}")
+            st.error(f"فشل تشغيل المتصفح على السيرفر: {e}")
+
+# الجسر لضمان تعريف كلمة driver في كل الملف
+driver = st.session_state.get("driver")
 
 def get_course_content(course_url):
+    # نتحقق أولاً هل المتصفح شغال؟
+    if "driver" not in st.session_state:
+        st.error("⚠️ المتصفح غير جاهز!")
+        return []
+        
+    local_driver = st.session_state.driver # استخدام الدرايفر من الجلسة
+    
     try:
-        # 1. الدخول لرابط المادة المحدد
-        driver.get(course_url)
-        time.sleep(4) # انتظار تحميل محتويات المودل
+        # 1. الدخول لرابط المادة المحدد باستخدام local_driver
+        local_driver.get(course_url)
+        time.sleep(4) 
         
         links_found = []
         
-        # 2. في المودل، الملفات والروابط غالباً تكون داخل كلاسات معينة (activityinstance)
-        # سنبحث عن كل الروابط التي تحتوي على ملفات أو فيديوهات
-        elements = driver.find_elements(By.CSS_SELECTOR, "div.activityinstance a")
+        # 2. البحث عن الروابط
+        elements = local_driver.find_elements(By.CSS_SELECTOR, "div.activityinstance a")
         
-        if not elements: # محاولة أخرى لو كان التصميم مختلفاً
-            elements = driver.find_elements(By.TAG_NAME, "a")
+        if not elements: 
+            elements = local_driver.find_elements(By.TAG_NAME, "a")
 
         for elem in elements:
             href = elem.get_attribute("href")
             text = elem.text
             
             if href:
-                # تصفية الروابط المهمة (ملف، فيديو، أو صفحة محتوى)
                 if any(ext in href for ext in [".pdf", "resource", "url", "video", "youtube"]):
-                    # استبعاد روابط التنسيق أو الملفات غير الضرورية
                     if "forcedownload=1" in href or "mod/resource" in href or "mod/url" in href:
                         links_found.append({
                             "name": text if text else "ملف/رابط غير مسمى",
@@ -75,7 +87,7 @@ def get_course_content(course_url):
         
         return links_found
     except Exception as e:
-        print(f"Error grabbing content: {e}")
+        st.error(f"خطأ في جلب المحتوى: {e}")
         return []
         
 def summarize_content(text_to_analyze, type="ملف"):
@@ -887,6 +899,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
