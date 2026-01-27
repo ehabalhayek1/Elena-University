@@ -650,8 +650,6 @@ with tabs[2]:
         
 # --- 4. الشات مع إيلينا ---
 with tabs[3]:
-    # لاحظ المسافة البادئة هنا (الإزاحة)
-    if "last_summary" in st.session_state or "user_schedule" in st.session_state:
         st.caption("🤖 إيلينا - مستشارك الأكاديمي الشامل (بذاكرة متصلة)")
         
         # 1. تجميع البيانات من النوافذ الأخرى (الذاكرة المركزية)
@@ -891,6 +889,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
