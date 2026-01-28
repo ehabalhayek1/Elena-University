@@ -166,11 +166,19 @@ def save_db(db):
     with open("users_db.json", "w") as f:
         json.dump(db, f, indent=4)
 # --- 3. التعرف التلقائي (هاد اللي كان بيعمل NameError) ---
+if st.query_params.get("logout") == "true":
+    st.session_state["is_logged_in"] = False
+    if "username" in cookies:
+        del cookies["username"]
+        cookies.save()
+    st.query_params.clear() # تنظيف الرابط
+    st.rerun() # إعادة تشغيل نظيفة
+
+# 2. الكود اللي إنت بعته (فحص الدخول التلقائي)
 if "username" in cookies and cookies["username"] != "" and not st.session_state.get("is_logged_in"):
     saved_user = cookies["username"]
-    db = load_db() # هلقيت البرنامج شايفها 100%
+    db = load_db()
     
-    # إذا كان المستخدم هو المطور (إيثان)
     if saved_user == "ethan":
         st.session_state.update({
             "is_logged_in": True,
@@ -178,14 +186,12 @@ if "username" in cookies and cookies["username"] != "" and not st.session_state.
             "user_role": "developer",
             "user_status": "Prime"
         })
-    # إذا كان طالب عادي
     elif saved_user in db:
         st.session_state.update({
             "is_logged_in": True,
             "username": saved_user,
             "user_role": "user",
             "user_status": db[saved_user].get("status", "Standard"),
-            # ملاحظة: استرجاع بيانات الجامعة من قاعدة البيانات مباشرة لضمان بقائها بعد الريفرش
             "u_id": db[saved_user].get("u_id", ""), 
             "u_pass": db[saved_user].get("u_pass", "")
         })
@@ -1045,7 +1051,6 @@ with st.sidebar:
     st.markdown("---")
     
     # 3. الإعدادات المتقدمة
-    # 3. الإعدادات المتقدمة
     with st.expander("⚙️ الإعدادات المتقدمة"):
         if st.button("🔴 تسجيل الخروج النهائي", use_container_width=True):
             # 1. مسح الكوكيز (عشان ما يرجع يدخلك أوتوماتيك)
@@ -1057,28 +1062,31 @@ with st.sidebar:
             for key in list(st.session_state.keys()):
                 del st.session_state[key]
             
-            # 3. الضربة القاضية: مسح الـ LocalStorage وعمل ريفريش للمتصفح
+            # 3. الضربة القاضية: مسح الـ LocalStorage والتوجيه لرابط الخروج
             st.components.v1.html(
                 """
                 <script>
                     // مسح الخزنة الدائمة في المتصفح
                     window.parent.localStorage.clear();
                     window.parent.sessionStorage.clear();
-                    // توجيه المتصفح لنفس الصفحة بدون أي بيانات قديمة
-                    window.parent.location.reload();
+                    
+                    // التوجيه لرابط فيه علامة logout عشان نضمن إنه الكوكيز ما ترجع
+                    let currentPath = window.parent.location.origin + window.parent.location.pathname;
+                    window.parent.location.href = currentPath + '?logout=true';
                 </script>
                 """,
                 height=0,
             )
             st.success("جاري تسجيل الخروج...")
             st.stop()
-    # 4. كود المطور
-    # تأكد إنك بتخزن الـ user_role في الـ session_state عند تسجيل الدخول
+
+    # 4. كود المطور (إيثان)
     if st.session_state.get("user_role") == "developer":
         st.divider()
-        if st.button("🧹 Clear Cache", use_container_width=True):
+        if st.button("🧹 Clear Cache (Developer Only)", use_container_width=True):
             st.cache_data.clear()
-            st.success("تم مسح الكاش!")
+            st.success("تم مسح الكاش بنجاح!")
+
 
 
 
