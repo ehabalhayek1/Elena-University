@@ -1045,24 +1045,27 @@ with st.sidebar:
     st.markdown("---")
     
     # 3. الإعدادات المتقدمة
+    # 3. الإعدادات المتقدمة
     with st.expander("⚙️ الإعدادات المتقدمة"):
         if st.button("🔴 تسجيل الخروج", use_container_width=True):
-            st.components.v1.html(
-                """
-                <script>
-                localStorage.clear(); sessionStorage.clear();
-                window.parent.location.href = window.parent.location.origin + window.parent.location.pathname;
-                </script>
-                """, height=0
-            )
-            st.session_state.clear()
-            st.stop()
+            # تصفير كل البيانات المخزنة في الجلسة
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            
+            # عرض رسالة نجاح سريعة قبل إعادة التحميل
+            st.success("تم تسجيل الخروج بنجاح.. جاري إعادة التحميل")
+            
+            # إعادة تشغيل التطبيق ليعود لنقطة الصفر (شاشة تسجيل الدخول)
+            st.rerun()
 
     # 4. كود المطور
+    # تأكد إنك بتخزن الـ user_role في الـ session_state عند تسجيل الدخول
     if st.session_state.get("user_role") == "developer":
+        st.divider()
         if st.button("🧹 Clear Cache", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش!")
+
 
 
 
