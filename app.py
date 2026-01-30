@@ -23,7 +23,7 @@ import pytz
 
 # إعداد Groq باستخدام الـ Secrets
 try:
-    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
+    GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
     client = Groq(api_key=GROQ_API_KEY)
 except KeyError:
     st.error("خطأ: مفتاح GROQ_API_KEY غير موجود في الـ Secrets!")
@@ -1136,6 +1136,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache (Developer Only)", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش بنجاح!")
+
 
 
 
