@@ -742,8 +742,12 @@ with tabs[1]:
         st.write(f"### 📄 الملفات والروابط المكتشفة:")
         
         for i, link in enumerate(st.session_state.current_course_links):
-            # فحص نوع الرابط
-            is_youtube = "youtube.com" in link['url'] or "youtu.be" in link['url']
+            # --- الفحص الذكي لنوع الرابط ---
+            url_low = link['url'].lower()
+            name_low = link['name'].lower()
+            
+            # تمييز اليوتيوب حتى لو الرابط داخلي من المودل
+            is_youtube = any(x in url_low for x in ["youtube", "youtu.be", "vimeo"]) or "فيديو" in name_low or "video" in name_low
             icon = "📺" if is_youtube else "📄"
             
             with st.container():
@@ -758,51 +762,36 @@ with tabs[1]:
                     btn_label = "✅ تم" if is_done else ("🧠 تلخيص" if is_youtube else "🪄 قراءة")
                     
                     if st.button(btn_label, key=f"sum_{i}", use_container_width=True):
-                        uid = st.session_state.get("u_id")
-                        upass = st.session_state.get("u_pass")
-                        
                         if is_youtube:
-                            # --- مسار اليوتيوب ---
-                            with st.spinner(f"إيلينا تشاهد فيديو {link['name']} وتلخصه..."):
-                                # استدعاء فنكشن اليوتيوب (تأكد إنك عرفتها فوق في الكود)
-                                summary = get_youtube_summary(link['url']) 
-                                
-                                if "messages" not in st.session_state:
-                                    st.session_state.messages = []
-                                
+                            with st.spinner(f"إيلينا تحلل الفيديو: {link['name']}..."):
+                                summary = get_youtube_summary(link['url'])
+                                if "messages" not in st.session_state: st.session_state.messages = []
                                 st.session_state.messages.append({
                                     "role": "assistant",
-                                    "content": f"تلخيص فيديو المحاضرة ({link['name']}):\n\n{summary}"
+                                    "content": f"🎬 **تلخيص فيديو:** {link['name']}\n\n{summary}"
                                 })
-                                
-                                if "summarized_items" not in st.session_state:
-                                    st.session_state.summarized_items = []
                                 st.session_state.summarized_items.append(link['url'])
-                                st.success("✅ تم تلخيص الفيديو!")
+                                st.success("✅ تم التلخيص في الشات!")
                                 st.rerun()
                         else:
-                            # --- مسار الـ PDF (كودك الأصلي) ---
-                            with st.spinner(f"إيلينا تفتح ملف {link['name']} وتقرأه..."):
+                            with st.spinner(f"إيلينا تقرأ الملف: {link['name']}..."):
+                                uid = st.session_state.get("u_id")
+                                upass = st.session_state.get("u_pass")
                                 res = run_selenium_task(uid, upass, "scrape_pdf", link['url'])
+                                
                                 if res and "pdf_text" in res:
-                                    if "pdf_memories" not in st.session_state:
-                                        st.session_state.pdf_memories = {}
+                                    if "pdf_memories" not in st.session_state: st.session_state.pdf_memories = {}
                                     st.session_state.pdf_memories[link['name']] = res["pdf_text"]
-                                    
-                                    if "summarized_items" not in st.session_state:
-                                        st.session_state.summarized_items = []
                                     st.session_state.summarized_items.append(link['url'])
-                                    
-                                    if "messages" not in st.session_state:
-                                        st.session_state.messages = []
+                                    if "messages" not in st.session_state: st.session_state.messages = []
                                     st.session_state.messages.append({
                                         "role": "assistant",
-                                        "content": f"لقد قرأت ملف {link['name']} بنجاح! اسألني عن أي شيء جواه."
+                                        "content": f"📄 **قرأت الملف:** {link['name']}\n\nصار عندي علم بمحتواه، اسألني عنه في الشات!"
                                     })
-                                    st.success(f"✅ تم سحب محتوى الملف!")
+                                    st.success("✅ تم سحب النص!")
                                     st.rerun()
                                 else:
-                                    st.error("❌ تعذر سحب الملف. قد يكون صورة أو يتطلب صلاحيات إضافية.")
+                                    st.error("❌ تعذر السحب. قد يكون الملف صورة أو رابط خارجي.")
                                                 
 with tabs[2]:
     st.subheader("📊 تقرير الأداء الشامل (كويزات وامتحانات)")
@@ -1147,6 +1136,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache (Developer Only)", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش بنجاح!")
+
 
 
 
