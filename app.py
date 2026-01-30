@@ -22,12 +22,13 @@ import time
 import pytz
 
 # إعداد Groq باستخدام الـ Secrets
-try:
-    GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
-    client = Groq(api_key=GROQ_API_KEY)
-except KeyError:
-    st.error("خطأ: مفتاح GROQ_API_KEY غير موجود في الـ Secrets!")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+
+if not GROQ_API_KEY:
+    st.error("❌ خطأ: مفتاح GROQ_API_KEY غير موجود في إعدادات السيرفر!")
     st.stop()
+else:
+    client = Groq(api_key=GROQ_API_KEY)
 
 cookies = EncryptedCookieManager(prefix="elena/", password="EM2006_secret_key")
 if not cookies.ready():
@@ -41,16 +42,30 @@ if "driver" not in st.session_state:
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
         
-        # المسار الافتراضي لكروميوم على سيرفرات ستريم ليت
-        options.binary_location = "/usr/bin/chromium" 
+        # --- الفحص الذكي للمسارات (Render vs Streamlit) ---
+        # مسار Render (اللي نزلناه بالسكريبت)
+        render_chrome = "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome"
+        # مسار Streamlit الافتراضي
+        streamlit_chrome = "/usr/bin/chromium"
+        
+        if os.path.exists(render_chrome):
+            options.binary_location = render_chrome
+            # في ريندر نستخدم الدرايفر العادي
+            chrome_type = ChromeType.GOOGLE
+        else:
+            options.binary_location = streamlit_chrome
+            # في ستريم ليت نستخدم نسخة كروميوم
+            chrome_type = ChromeType.CHROMIUM
 
         try:
-            # استخدام ChromeDriverManager مع تحديد ChromeType.CHROMIUM
-            service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+            # تثبيت الدرايفر المناسب تلقائياً بناءً على النوع المكتشف
+            service = Service(ChromeDriverManager(chrome_type=chrome_type).install())
             st.session_state.driver = webdriver.Chrome(service=service, options=options)
+            st.success("✅ إيلينا متصلة وجاهزة للعمل!")
         except Exception as e:
-            st.error(f"فشل تشغيل المتصفح على السيرفر: {e}")
-
+            st.error(f"❌ فشل تشغيل المتصفح: {e}")
+            st.info("نصيحة: تأكد من وجود ملف render-build.sh لو كنت تستخدم Render.")
+            
 # الجسر لضمان تعريف كلمة driver في كل الملف
 driver = st.session_state.get("driver")
 
@@ -1136,6 +1151,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache (Developer Only)", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش بنجاح!")
+
 
 
 
