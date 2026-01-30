@@ -83,7 +83,7 @@ def get_course_content(course_url):
                 # جلب الرابط والنص والأيقونة
                 link_elem = activity.find_element(By.TAG_NAME, "a")
                 href = link_elem.get_attribute("href")
-                text = link_elem.text.replace("رابط", "").replace("ملف", "").strip()
+                text = link_elem.text.replace("رابط", "🎥").replace("ملف", "📁").strip()
                 
                 # فحص نوع النشاط من خلال الكلاسات (مودل بيحدد النوع في كلاس الـ li)
                 activity_class = activity.get_attribute("class")
@@ -807,24 +807,55 @@ with tabs[1]:
                                 st.success("✅ تم التلخيص في الشات!")
                                 st.rerun()
                         else:
-                            with st.spinner(f"إيلينا تقرأ الملف: {link['name']}..."):
+                            # --- فحص ذكي: هل الرابط ملف PDF أم صفحة ويب (كيرشوف مثلاً) ---
+                            is_pdf = "resource" in link['url'].lower() or ".pdf" in link['url'].lower()
+                            task = "scrape_pdf" if is_pdf else "browse"
+                            msg_action = "تقرأ الملف" if is_pdf else "تتصفح الرابط"
+
+                            with st.spinner(f"إيلينا {msg_action}: {link['name']}..."):
                                 uid = st.session_state.get("u_id")
                                 upass = st.session_state.get("u_pass")
-                                res = run_selenium_task(uid, upass, "scrape_pdf", link['url'])
+                                res = run_selenium_task(uid, upass, task, link['url'])
                                 
-                                if res and "pdf_text" in res:
+                                content = None
+                                success_msg = ""
+
+                                # 1. فحص هل الرابط حولنا لليوتيوب (مثل تجربة كيرشوف)
+                                if res and "url" in res and any(x in res["url"] for x in ["youtube.com", "youtu.be"]):
+                                    with st.spinner("تبين أن الرابط فيديو.. جاري تلخيص اليوتيوب..."):
+                                        content = get_youtube_summary(res["url"])
+                                        success_msg = "✅ تم تلخيص الفيديو المتحول بنجاح!"
+                                
+                                # 2. النجاح في حالة الـ PDF العادي
+                                elif res and "pdf_text" in res:
+                                    content = res["pdf_text"]
+                                    success_msg = "✅ تم سحب نص الملف!"
+                                    
+                                # 3. النجاح في حالة صفحة ويب نصية
+                                elif res and "course_content" in res:
+                                    content = res["course_content"]
+                                    success_msg = "✅ تم سحب محتوى الصفحة!"
+                                else:
+                                    content = None
+
+                                if content:
                                     if "pdf_memories" not in st.session_state: st.session_state.pdf_memories = {}
-                                    st.session_state.pdf_memories[link['name']] = res["pdf_text"]
+                                    st.session_state.pdf_memories[link['name']] = content
                                     st.session_state.summarized_items.append(link['url'])
+                                    
                                     if "messages" not in st.session_state: st.session_state.messages = []
+                                    
+                                    # تخصيص رسالة الشات بناءً على ما وجدته إيلينا
+                                    display_type = "الفيديو" if "YouTube" in success_msg else ("الملف" if is_pdf else "الرابط")
+                                    
                                     st.session_state.messages.append({
                                         "role": "assistant",
-                                        "content": f"📄 **قرأت الملف:** {link['name']}\n\nصار عندي علم بمحتواه، اسألني عنه في الشات!"
+                                        "content": f"🧠 **تمت المعالجة الذكية:** {link['name']}\n\nلقد قمت بتحليل {display_type}، يمكنك سؤالي عن التفاصيل الآن!"
                                     })
-                                    st.success("✅ تم سحب النص!")
+                                    st.success(success_msg)
                                     st.rerun()
                                 else:
-                                    st.error("❌ تعذر السحب. قد يكون الملف صورة أو رابط خارجي.")
+                                    st.error("❌ تعذر السحب. تأكد أن الرابط متاح أو حاول لاحقاً.")
                                                 
 with tabs[2]:
     st.subheader("📊 تقرير الأداء الشامل (كويزات وامتحانات)")
@@ -1169,6 +1200,7 @@ with st.sidebar:
         if st.button("🧹 Clear Cache (Developer Only)", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش بنجاح!")
+
 
 
 
