@@ -41,107 +41,95 @@ if "driver" not in st.session_state:
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
         options.add_argument('--disable-gpu')
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-logging')
+        options.add_argument('--log-level=3')
         
+        # Smart path detection (Render vs Streamlit)
         render_chrome = "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome"
+        streamlit_chrome = "/usr/bin/chromium"
         
         if os.path.exists(render_chrome):
             options.binary_location = render_chrome
-            # الحل الجديد: لا نستخدم ChromeDriverManager يدوياً
-            # السيلينيوم 4.10+ سيقوم بالبحث عن الدرايفر المناسب تلقائياً
-            try:
-                st.session_state.driver = webdriver.Chrome(options=options)
-                st.success("✅ تم الربط مع كروم 144 بنجاح!")
-            except Exception as e:
-                st.error(f"❌ محاولة الربط التلقائي فشلت، نجرب الطريقة البديلة: {e}")
+            chrome_type = ChromeType.GOOGLE
         else:
-            # إعدادات ستريم ليت الافتراضية
-            options.binary_location = "/usr/bin/chromium"
-            service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+            options.binary_location = streamlit_chrome
+            chrome_type = ChromeType.CHROMIUM
+
+        try:
+            service = Service(ChromeDriverManager(chrome_type=chrome_type).install())
             st.session_state.driver = webdriver.Chrome(service=service, options=options)
+            st.success("✅ إيلينا متصلة وجاهزة للعمل!")
+        except Exception as e:
+            st.error(f"❌ فشل تشغيل المتصفح: {e}")
+            st.info("نصيحة: تأكد من وجود ملف render-build.sh لو كنت تستخدم Render.")
+            st.session_state.driver = None
             
 # الجسر لضمان تعريف كلمة driver في كل الملف
 driver = st.session_state.get("driver")
 
 def get_course_content(course_url):
+    # نتحقق أولاً هل المتصفح شغال؟
     if "driver" not in st.session_state:
         st.error("⚠️ المتصفح غير جاهز!")
         return []
         
-    local_driver = st.session_state.driver 
+    local_driver = st.session_state.driver # استخدام الدرايفر من الجلسة
     
     try:
+        # 1. الدخول لرابط المادة المحدد باستخدام local_driver
         local_driver.get(course_url)
-        time.sleep(5) # زدنا الوقت شوي عشان المودل بطيء في التحميل
+        time.sleep(4) 
         
         links_found = []
         
-        # 1. البحث عن حاويات الأنشطة في المودل (الطريقة الأدق)
-        activities = local_driver.find_elements(By.CSS_SELECTOR, "li.activity")
+        # 2. البحث عن الروابط
+        elements = local_driver.find_elements(By.CSS_SELECTOR, "div.activityinstance a")
         
-        for activity in activities:
-            try:
-                # جلب الرابط والنص والأيقونة
-                link_elem = activity.find_element(By.TAG_NAME, "a")
-                href = link_elem.get_attribute("href")
-                text = link_elem.text.replace("رابط", "🎥").replace("ملف", "📁").strip()
-                
-                # فحص نوع النشاط من خلال الكلاسات (مودل بيحدد النوع في كلاس الـ li)
-                activity_class = activity.get_attribute("class")
-                
-                content_type = "رابط/ملف" # النوع الافتراضي
-                
-                if "resource" in activity_class or ".pdf" in href.lower():
-                    content_type = "📄 ملف دراسي"
-                elif "url" in activity_class or "video" in href.lower() or "youtube" in href.lower():
-                    content_type = "🎥 فيديو / رابط"
-                elif "assign" in activity_class:
-                    content_type = "📝 تكليف / واجب"
-                elif "folder" in activity_class:
-                    content_type = "📁 مجلد ملفات"
-
-                if href and "course/view.php" not in href: # تجنب روابط الصفحة نفسها
-                    links_found.append({
-                        "name": text if text else "محتوى غير مسمى",
-                        "url": href,
-                        "type": content_type
-                    })
-            except:
-                continue
-        
-        # 2. إذا ما لقيناش بالطريقة الأولى (احتياطي)
-        if not links_found:
+        if not elements: 
             elements = local_driver.find_elements(By.TAG_NAME, "a")
-            for elem in elements:
-                href = elem.get_attribute("href")
-                if href and any(ext in href.lower() for ext in ["mod/resource", "mod/url", "mod/folder", "forcedownload"]):
-                    links_found.append({
-                        "name": elem.text if elem.text else "رابط خارجي",
-                        "url": href,
-                        "type": "🔍 مورد دراسي"
-                    })
+
+        for elem in elements:
+            href = elem.get_attribute("href")
+            text = elem.text
+            
+            if href:
+                if any(ext in href for ext in [".pdf", "resource", "url", "video", "youtube"]):
+                    if "forcedownload=1" in href or "mod/resource" in href or "mod/url" in href:
+                        links_found.append({
+                            "name": text if text else "ملف/رابط غير مسمى",
+                            "url": href
+                        })
         
         return links_found
     except Exception as e:
         st.error(f"خطأ في جلب المحتوى: {e}")
         return []
         
-def summarize_content(text_to_analyze, type="ملف"):
+def summarize_content(text_to_analyze, content_type="ملف"):
+    """Summarize content using Groq AI with proper error handling."""
+    if not text_to_analyze or not text_to_analyze.strip():
+        return "المحتوى فارغ ولا يمكن تلخيصه."
+    
     try:
+        # Limit text to prevent token overflow
+        truncated_text = text_to_analyze[:15000]
+        
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
+            model=GROQ_MODEL,
             messages=[
-                {"role": "system", "content": f"أنت مساعد أكاديمي خبير. قم بتلخيص هذا الـ {type} بشكل نقاط مركزة ومفيدة للطالب."},
-                {"role": "user", "content": f"المحتوى المراد تلخيصه:\n\n{text_to_analyze[:15000]}"} 
+                {"role": "system", "content": f"أنت مساعد أكاديمي خبير. قم بتلخيص هذا الـ {content_type} بشكل نقاط مركزة ومفيدة للطالب."},
+                {"role": "user", "content": f"المحتوى المراد تلخيصه:\n\n{truncated_text}"}
             ],
+            temperature=0.3,
+            max_tokens=2000
         )
         summary = response.choices[0].message.content
-        
-        # التعديل هون: حفظ التلخيص عشان إيلينا تشوفه في الشات
-        st.session_state.last_summary = summary 
-        
+        st.session_state.last_summary = summary
         return summary
     except Exception as e:
-        return f"حدث خطأ في التلخيص: {e}"
+        st.error(f"خطأ في الاتصال بـ AI: {e}")
+        return f"حدث خطأ في التلخيص: {str(e)}"
     
 # --- الدالة السحرية لحل مشكلة الوقت (فلسطين UTC+2) ---
 def get_local_time():
@@ -186,19 +174,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-def load_db():
-    if not os.path.exists("users_db.json"):
-        with open("users_db.json", "w") as f:
-            json.dump({}, f)
-    with open("users_db.json", "r") as f:
-        try:
-            return json.load(f)
-        except:
-            return {}
-
-def save_db(db):
-    with open("users_db.json", "w") as f:
-        json.dump(db, f, indent=4)
+# Database helpers defined above - removed duplicate
 # --- 3. التعرف التلقائي (هاد اللي كان بيعمل NameError) ---
 if st.query_params.get("logout") == "true":
     st.session_state["is_logged_in"] = False
@@ -230,80 +206,297 @@ if "username" in cookies and cookies["username"] != "" and not st.session_state.
             "u_pass": db[saved_user].get("u_pass", "")
         })
 
-# --- 2. تهيئة الجلسة والداتا ---
-if "is_logged_in" not in st.session_state: st.session_state.is_logged_in = False
-if "user_status" not in st.session_state: st.session_state.user_status = "Standard"
-if "courses" not in st.session_state: st.session_state.courses = {}
-if "timeline_data" not in st.session_state: st.session_state.timeline_data = ""
-if "IF_VALID_CODES" not in st.session_state: st.session_state.IF_VALID_CODES = ["ELENA-PRO-2026", "ETHAN-VIP"]
+# --- 2. Session State Initialization ---
+def init_session_state():
+    """Initialize all session state variables with defaults."""
+    defaults = {
+        "is_logged_in": False,
+        "user_status": "Standard",
+        "user_role": "user",
+        "username": "",
+        "courses": {},
+        "timeline_data": "",
+        "messages": [],
+        "pdf_memories": {},
+        "summarized_items": [],
+        "knowledge_base": {},
+        "deep_scan_progress": [],
+        "IF_VALID_CODES": ["ELENA-PRO-2026", "ETHAN-VIP"],
+        "u_id": "",
+        "u_pass": "",
+        "is_synced": False
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
+init_session_state()
+
+# Configuration Constants
 EMAIL_ADDRESS = "ehabalhayekm@gmail.com" 
 EMAIL_PASSWORD = "hvvh duch onfd xxdv" 
 DB_FILE = "users_db.json"
+MAX_FREE_SYNCS = 10
+PDF_TEXT_LIMIT = 8000
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
+# Database helpers (single definition)
 def load_db():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f: return json.load(f)
-    return {}
+    """Load user database from JSON file."""
+    if not os.path.exists(DB_FILE):
+        return {}
+    try:
+        with open(DB_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
 
 def save_db(data):
-    with open(DB_FILE, "w") as f: json.dump(data, f, indent=4)
+    """Save user database to JSON file."""
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except IOError as e:
+        st.error(f"فشل حفظ البيانات: {e}")
 
 def send_otp(target_email, code):
-    msg = EmailMessage()
-    msg.set_content(f"كود التحقق الخاص بك لمنصة إيلينا هو: {code}")
-    msg['Subject'] = "تفعيل حساب إيلينا AI"
-    msg['From'] = EMAIL_ADDRESS
-    msg['To'] = target_email
+    """Send OTP via email with proper validation and error handling."""
+    # Validate email format
+    if not target_email or '@' not in target_email:
+        return False
+    
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+        msg = EmailMessage()
+        msg.set_content(
+            f"""مرحباً بك في منصة إيلينا AI!
+            
+            كود التحقق الخاص بك هو: {code}
+            
+            هذا الكود صالح لمرة واحدة فقط.
+            إذا لم تطلب هذا الكود، يرجى تجاهل هذه الرسالة.
+            
+            مع تحيات فريق إيلينا
+            """
+        )
+        msg['Subject'] = "تفعيل حساب إيلينا AI"
+        msg['From'] = EMAIL_ADDRESS
+        msg['To'] = target_email
+        
+        with smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10) as smtp:
             smtp.login(EMAIL_ADDRESS, EMAIL_PASSWORD)
             smtp.send_message(msg)
         return True
-    except: return False
+    except smtplib.SMTPException as e:
+        st.error(f"خطأ في إرسال البريد: {e}")
+        return False
+    except Exception as e:
+        st.error(f"خطأ غير متوقع: {e}")
+        return False
 
 def get_youtube_summary(video_url):
+    """Extract and summarize YouTube video transcripts."""
+    if not video_url:
+        return "❌ الرجاء إدخال رابط فيديو صحيح."
+    
     try:
-        # استخراج الـ ID بأكثر من طريقة لضمان العمل
+        # Extract video ID with improved regex patterns
         video_id = None
         if "v=" in video_url:
             video_id = video_url.split("v=")[-1].split("&")[0]
         elif "youtu.be/" in video_url:
             video_id = video_url.split("youtu.be/")[-1].split("?")[0]
         
-        if not video_id:
+        if not video_id or len(video_id) != 11:
             return "❌ عذراً، لم أستطع التعرف على رابط الفيديو بشكل صحيح."
 
-        # سحب النص التلقائي
+        # Fetch transcript with language priority
         try:
-            # بنحاول نجيب العربي أولاً، إذا ما في بنجيب الإنجليزي
             transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+            # Try Arabic first, then English, then any available
             try:
                 transcript = transcript_list.find_transcript(['ar'])
             except:
-                transcript = transcript_list.find_transcript(['en'])
+                try:
+                    transcript = transcript_list.find_transcript(['en'])
+                except:
+                    transcript = transcript_list.find_generated_transcript(['en'])
             
             data = transcript.fetch()
             full_text = " ".join([item['text'] for item in data])
+            
+            if not full_text.strip():
+                return "❌ النص المستخرج فارغ."
+                
         except Exception as e:
             return "❌ هذا الفيديو لا يحتوي على نص تلقائي (Transcripts) مفعل، لا أستطيع قراءته."
 
-        # الإرسال لـ Groq للتخليص
+        # Send to Groq for summarization
+        truncated_text = full_text[:PDF_TEXT_LIMIT]
         prompt = f"""
-        أنت مهندس ذكاء اصطناعي مساعد لزميلك الطالب إيهاب. 
-        قم بتلخيص هذه المحاضرة بدقة واحترافية. 
+        أنت مساعد أكاديمي ذكي. قم بتلخيص هذه المحاضرة بدقة واحترافية.
         استخدم النقاط، واذكر أهم المفاهيم العلمية الواردة.
-        النص: {full_text[:8000]} 
+        
+        النص: {truncated_text}
         """
-        # (استخدمت 8000 حرف كحد أقصى عشان ما يتجاوز الـ Context limit)
 
         response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}]
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+            max_tokens=2000
         )
         return response.choices[0].message.content
     except Exception as e:
+        st.error(f"خطأ في معالجة الفيديو: {e}")
         return f"❌ خطأ تقني: {str(e)}"
+
+def deep_scan_course(username, password, course_url, progress_callback=None):
+    """Deep scan a course: click all links, extract content intelligently."""
+    if not username or not password or not course_url:
+        return {"error": "بيانات غير كاملة."}
+    
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--window-size=1920,1080')
+    options.binary_location = "/usr/bin/chromium"
+
+    driver = None
+    knowledge_base = {}
+    
+    try:
+        service = Service(ChromeDriverManager(chrome_type=ChromeType.CHROMIUM).install())
+        driver = webdriver.Chrome(service=service, options=options)
+        driver.set_page_load_timeout(30)
+        
+        # Login
+        driver.get("https://sso.iugaza.edu.ps/saml/module.php/core/loginuserpass")
+        time.sleep(3)
+        driver.find_element(By.ID, "username").send_keys(username)
+        p_field = driver.find_element(By.ID, "password")
+        p_field.send_keys(password)
+        p_field.send_keys(Keys.ENTER)
+        time.sleep(12)
+        
+        # Navigate to course
+        driver.get(course_url)
+        time.sleep(5)
+        
+        # Find all resource links
+        link_elements = driver.find_elements(By.CSS_SELECTOR, ".activityinstance a, .aalink")
+        links_to_scan = []
+        
+        for elem in link_elements:
+            try:
+                name = elem.text.strip()
+                url = elem.get_attribute("href")
+                if url and name and "course/view.php" not in url:
+                    links_to_scan.append({"name": name, "url": url})
+            except:
+                continue
+        
+        total_links = len(links_to_scan)
+        if progress_callback:
+            progress_callback(f"🔍 وجدت {total_links} عنصر للمسح...")
+        
+        # Scan each link
+        for idx, link in enumerate(links_to_scan, 1):
+            try:
+                if progress_callback:
+                    progress_callback(f"📖 [{idx}/{total_links}] معالجة: {link['name']}")
+                
+                url_lower = link['url'].lower()
+                content = ""
+                content_type = "unknown"
+                
+                # YouTube video detection
+                if any(x in url_lower for x in ["youtube", "youtu.be", "vimeo"]) or "watch?v=" in url_lower:
+                    try:
+                        # Extract video ID
+                        video_id = None
+                        if "v=" in link['url']:
+                            video_id = link['url'].split("v=")[-1].split("&")[0]
+                        elif "youtu.be/" in link['url']:
+                            video_id = link['url'].split("youtu.be/")[-1].split("?")[0]
+                        
+                        if video_id and len(video_id) == 11:
+                            transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+                            try:
+                                transcript = transcript_list.find_transcript(['ar'])
+                            except:
+                                transcript = transcript_list.find_transcript(['en'])
+                            
+                            data = transcript.fetch()
+                            content = " ".join([item['text'] for item in data])
+                            content_type = "video"
+                    except:
+                        content = "[فشل استخراج نص الفيديو]"
+                        content_type = "video"
+                
+                # PDF detection
+                elif ".pdf" in url_lower or "mod/resource" in url_lower:
+                    try:
+                        cookies = {c['name']: c['value'] for c in driver.get_cookies()}
+                        response = requests.get(link['url'], cookies=cookies, timeout=15)
+                        
+                        if response.status_code == 200 and 'application/pdf' in response.headers.get('Content-Type', ''):
+                            pdf_file = io.BytesIO(response.content)
+                            reader = PdfReader(pdf_file)
+                            pdf_text = ""
+                            for page in reader.pages:
+                                pdf_text += page.extract_text() + "\n"
+                            content = pdf_text[:20000]  # Limit size
+                            content_type = "pdf"
+                        else:
+                            # Try clicking and extracting
+                            driver.get(link['url'])
+                            time.sleep(4)
+                            content = driver.find_element(By.TAG_NAME, "body").text[:20000]
+                            content_type = "page"
+                    except:
+                        content = "[فشل استخراج محتوى PDF]"
+                        content_type = "pdf"
+                
+                # Regular page/resource
+                else:
+                    try:
+                        driver.get(link['url'])
+                        time.sleep(4)
+                        try:
+                            content = driver.find_element(By.ID, "region-main").text
+                        except:
+                            content = driver.find_element(By.TAG_NAME, "body").text
+                        content = content[:20000]  # Limit size
+                        content_type = "page"
+                    except:
+                        content = "[فشل الوصول للصفحة]"
+                        content_type = "page"
+                
+                # Store in knowledge base
+                if content and len(content.strip()) > 50:
+                    knowledge_base[link['name']] = {
+                        "content": content,
+                        "type": content_type,
+                        "url": link['url']
+                    }
+                
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"⚠️ خطأ في {link['name']}: {str(e)[:50]}")
+                continue
+        
+        if progress_callback:
+            progress_callback(f"✅ اكتمل المسح! تم معالجة {len(knowledge_base)} عنصر بنجاح.")
+        
+        return {"knowledge_base": knowledge_base, "success": True}
+        
+    except Exception as e:
+        return {"error": f"خطأ في المسح العميق: {str(e)}"}
+    finally:
+        if driver:
+            driver.quit()
 
 def run_selenium_task(username, password, task_type="timeline", target_url=None):
     options = Options()
@@ -755,20 +948,60 @@ with tabs[1]:
         selected_course = st.selectbox("اختر المادة لتصفح محتوياتها:", list(st.session_state.my_real_courses.keys()))
         course_url = st.session_state.my_real_courses[selected_course]
         
-        if st.button("🔍 تصفح محتوى المادة وسحب الروابط", use_container_width=True):
-            uid = st.session_state.get("u_id")
-            upass = st.session_state.get("u_pass")
-            
-            if uid and upass:
-                with st.spinner("جاري سحب الملفات والروابط..."):
-                    res = run_selenium_task(uid, upass, "browse", course_url)
-                    if res and "course_content" in res:
-                        st.session_state.current_course_content = res["course_content"]
-                        st.session_state.current_course_links = res.get("course_links", [])
-                        st.session_state.summarized_items = [] 
-                        st.success("✨ تم سحب محتوى المادة بنجاح!")
-            else:
-                st.error("⚠️ بيانات المودل غير متوفرة، أعد المزامنة.")
+        col_browse, col_deep = st.columns(2)
+        
+        with col_browse:
+            if st.button("🔍 تصفح سريع", use_container_width=True):
+                uid = st.session_state.get("u_id")
+                upass = st.session_state.get("u_pass")
+                
+                if uid and upass:
+                    with st.spinner("جاري سحب الملفات والروابط..."):
+                        res = run_selenium_task(uid, upass, "browse", course_url)
+                        if res and "course_content" in res:
+                            st.session_state.current_course_content = res["course_content"]
+                            st.session_state.current_course_links = res.get("course_links", [])
+                            st.session_state.summarized_items = [] 
+                            st.success("✨ تم سحب محتوى المادة بنجاح!")
+                else:
+                    st.error("⚠️ بيانات المودل غير متوفرة، أعد المزامنة.")
+        
+        with col_deep:
+            if st.button("🧠 مسح عميق (Deep Scan)", use_container_width=True, type="primary"):
+                uid = st.session_state.get("u_id")
+                upass = st.session_state.get("u_pass")
+                
+                if uid and upass:
+                    progress_placeholder = st.empty()
+                    status_text = st.empty()
+                    
+                    def update_progress(msg):
+                        st.session_state.deep_scan_progress.append(msg)
+                        status_text.text(msg)
+                    
+                    with st.spinner(f"🚀 جاري المسح العميق لمادة {selected_course}..."):
+                        st.session_state.deep_scan_progress = []
+                        result = deep_scan_course(uid, upass, course_url, update_progress)
+                        
+                        if result.get("success"):
+                            # Store in session state with course name
+                            if selected_course not in st.session_state.knowledge_base:
+                                st.session_state.knowledge_base[selected_course] = {}
+                            
+                            st.session_state.knowledge_base[selected_course] = result["knowledge_base"]
+                            
+                            st.success(f"✅ تم المسح العميق بنجاح! تم استخراج {len(result['knowledge_base'])} عنصر.")
+                            st.balloons()
+                            
+                            # Show summary
+                            with st.expander("📊 ملخص المسح العميق"):
+                                for name, data in result["knowledge_base"].items():
+                                    icon = "📺" if data['type'] == 'video' else "📄" if data['type'] == 'pdf' else "📃"
+                                    st.write(f"{icon} **{name}** - {len(data['content'])} حرف")
+                        else:
+                            st.error(f"❌ {result.get('error', 'فشل المسح')}")
+                else:
+                    st.warning("⚠️ يرجى المزامنة مع المودل أولاً.")
 
     # 3. عرض الملفات والروابط مع ميزة السحب العميق (PDF Scraping)
     if st.session_state.get("current_course_links"):
@@ -807,51 +1040,24 @@ with tabs[1]:
                                 st.success("✅ تم التلخيص في الشات!")
                                 st.rerun()
                         else:
-                            # --- فحص ذكي: هل الرابط ملف PDF أم صفحة ويب (كيرشوف مثلاً) ---
-                            is_pdf = "resource" in link['url'].lower() or ".pdf" in link['url'].lower()
-                            task_type = "scrape_pdf" if is_pdf else "browse"
-                            msg_action = "تقرأ الملف" if is_pdf else "تتصفح الرابط"
-
-                            with st.spinner(f"إيلينا {msg_action}: {link['name']}..."):
+                            with st.spinner(f"إيلينا تقرأ الملف: {link['name']}..."):
                                 uid = st.session_state.get("u_id")
                                 upass = st.session_state.get("u_pass")
-                                # هون بننادي السيلينيوم حسب نوع المهمة
-                                res = run_selenium_task(uid, upass, task_type, link['url'])
+                                res = run_selenium_task(uid, upass, "scrape_pdf", link['url'])
                                 
-                                content = None
-                                success_msg = ""
-
-                                # 1. فحص هل الرابط حولنا لليوتيوب (الفخ اللي وقعنا فيه)
-                                if res and "url" in res and any(x in res["url"] for x in ["youtube.com", "youtu.be"]):
-                                    with st.spinner("قفشتك! هاد فيديو يوتيوب.. جاري سحب الشرح بالتفصيل..."):
-                                        # هون السر: بننادي دالة التلخيص للرابط الجديد اللي طلع للسيلينيوم
-                                        content = get_youtube_summary(res["url"])
-                                        success_msg = "✅ تم سحب شرح الفيديو كامل!"
-                                
-                                # 2. لو هو PDF فعلاً
-                                elif res and "pdf_text" in res:
-                                    content = res["pdf_text"]
-                                    success_msg = "✅ تم سحب نص الملف!"
-                                    
-                                # 3. لو هي صفحة ويب عادية (Link)
-                                elif res and "course_content" in res:
-                                    content = res["course_content"]
-                                    success_msg = "✅ تم سحب محتوى الصفحة!"
-
-                                if content:
+                                if res and "pdf_text" in res:
                                     if "pdf_memories" not in st.session_state: st.session_state.pdf_memories = {}
-                                    st.session_state.pdf_memories[link['name']] = content
+                                    st.session_state.pdf_memories[link['name']] = res["pdf_text"]
                                     st.session_state.summarized_items.append(link['url'])
-                                    
                                     if "messages" not in st.session_state: st.session_state.messages = []
                                     st.session_state.messages.append({
                                         "role": "assistant",
-                                        "content": f"🧠 **تمت القراءة الذكية:** {link['name']}\n\nصار عندي علم بالمحتوى، اسألني عنه في Ask Elena!"
+                                        "content": f"📄 **قرأت الملف:** {link['name']}\n\nصار عندي علم بمحتواه، اسألني عنه في الشات!"
                                     })
-                                    st.success(success_msg)
+                                    st.success("✅ تم سحب النص!")
                                     st.rerun()
                                 else:
-                                    st.error("❌ تعذر السحب. الرابط قد يكون محمي أو يحتاج تسجيل دخول يدوي.")
+                                    st.error("❌ تعذر السحب. قد يكون الملف صورة أو رابط خارجي.")
                                                 
 with tabs[2]:
     st.subheader("📊 تقرير الأداء الشامل (كويزات وامتحانات)")
@@ -928,32 +1134,126 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("🤖 إيلينا - المحلل الأكاديمي العميق")
     st.caption("مربع الدردشة ثابت في الأسفل لسهولة التواصل")
+    
+    # Knowledge Base Status Bar
+    knowledge_base = st.session_state.get("knowledge_base", {})
+    if knowledge_base:
+        with st.expander("📚 قاعدة المعرفة الحالية - انقر لعرض التفاصيل", expanded=False):
+            for course_name, items in knowledge_base.items():
+                st.markdown(f"### 📖 {course_name}")
+                for item_name, data in items.items():
+                    icon = "📺" if data['type'] == 'video' else "📄" if data['type'] == 'pdf' else "📃"
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    with col1:
+                        st.write(f"{icon} {item_name}")
+                    with col2:
+                        st.caption(f"{len(data['content'])} حرف")
+                    with col3:
+                        st.caption(data['type'])
+                st.markdown("---")
+            
+            if st.button("🗑️ مسح قاعدة المعرفة", type="secondary"):
+                st.session_state.knowledge_base = {}
+                st.rerun()
+    else:
+        st.info("💡 لم يتم إجراء مسح عميق بعد. انتقل لتبويب المقررات واستخدم 'مسح عميق' لبناء قاعدة المعرفة.")
 
-    # 1. تجهيز البيانات (بجيب نصوص الـ PDF المسحوبة)
+    # 1. تجهيز البيانات من المسح العميق (Deep Scan Knowledge Base)
+    knowledge_base = st.session_state.get("knowledge_base", {})
     pdf_memories = st.session_state.get("pdf_memories", {})
+    
+    # Build comprehensive context from Deep Scan
+    deep_context = ""
+    source_map = {}  # Track sources for citations
+    
+    for course_name, items in knowledge_base.items():
+        deep_context += f"\n\n═══════ مادة: {course_name} ═══════\n"
+        for item_name, data in items.items():
+            content_preview = data['content'][:8000]  # Limit per item
+            item_type = data['type']
+            icon = "📺" if item_type == 'video' else "📄" if item_type == 'pdf' else "📃"
+            
+            deep_context += f"\n{icon} [{item_name}]:\n{content_preview}\n---\n"
+            source_map[item_name] = {"course": course_name, "type": item_type}
+    
+    # Add individual PDF memories
     pdf_context = ""
     for name, text in pdf_memories.items():
-        # دمج النصوص بشكل احترافي
-        pdf_context += f"\n--- محتوى ملف: {name} ---\n{text[:6000]}\n"
+        pdf_context += f"\n--- ملف: {name} ---\n{text[:6000]}\n"
+        source_map[name] = {"course": "محتوى فردي", "type": "pdf"}
     
     course_data = st.session_state.get("current_course_content", "")
-
-    # 2. 🔥 التعليمات الصارمة (System Prompt) 🔥
-    # هان سر التغيير: منعنا إيلينا من الكلام العام وأجبرناها على "الاقتباس"
-    instruction = f"""
-    أنتِ إيلينا، المحللة الأكاديمية الخاصة بإيثان. وظيفتك هي (التنقيب في البيانات).
     
-    📋 المصادر المتوفرة حالياً (اقرئيها حرفياً):
+    # Show knowledge base status
+    total_sources = len(source_map)
+    if total_sources > 0:
+        st.info(f"💡 إيلينا لديها حالياً {total_sources} مصدر في قاعدة المعرفة")
+
+    # 2. 🔥 Enhanced System Prompt with Source Citation 🔥
+    instruction = f"""
+    أنتِ إيلينا، المحللة الأكاديمية الذكية الخاصة بإيثان. لديكِ قاعدة معرفة كاملة من المسح العميق للمواد.
+    
+    📚 قاعدة المعرفة المتاحة:
+    {deep_context}
     {pdf_context}
     {course_data[:2000]}
     
-    🚨 قواعد صارمة لكل الملفات:
-    1. مـمـنـوع الإجابات العامة (مثل: الملف يتحدث عن الفيزياء/البرمجة). 
-    2. عند السؤال عن "شو فيه" أو "ملخص"، استخرجي: (القوانين المذكورة، المسائل المحلولة، الأرقام، الملاحظات الهامشية).
-    3. إذا كان الملف يحتوي على أسئلة (Recommended Problems)، اذكري أرقام الأسئلة وصيغتها كما وردت في النص.
-    4. في "الأسئلة المتوقعة": لا تخمني من عقلك، بل حولي النقاط الصعبة الموجودة داخل النص المسحوب إلى أسئلة امتحانية.
-    5. إذا سألك إيثان عن "الأساسيات"، ركزي على المفاهيم المكتوب بجانبها (Note, Important, Definition) داخل النص.
-    6. خاطبي إيثان دائماً باسمه، وكوني "دقيقة جداً" كأنكِ تراجعين معه ليلة الامتحان.
+    🎯 قواعد الإجابة الإلزامية:
+    1. **الاقتباس المباشر**: عند الإجابة، اذكري اسم الملف/الفيديو المصدر بين قوسين [المصدر: اسم الملف]
+    2. **الدقة التامة**: استخرجي القوانين، الأرقام، المسائل، والتعاريف كما وردت بالضبط
+    3. **التنقيب العميق**: ابحثي في كل المصادر المتاحة وقارني المعلومات
+    4. **الأسئلة المتوقعة**: استخرجيها من النقاط الصعبة في النصوص الفعلية، لا تخمني
+    5. **الربط الذكي**: إذا كان السؤال عن موضوع معين، اجمعي المعلومات من كل الملفات ذات الصلة
+    6. **الشفافية**: إذا لم تجدي المعلومة في المصادر المتاحة، قولي ذلك صراحة
+    
+    💬 أسلوب الرد:
+    - ابدأي بذكر المصادر التي استخدمتها
+    - قدمي الإجابة بتفصيل مع الاستشهاد
+    - اختمي بنصيحة عملية أو خطوة تالية
+    
+    مثال على الرد الصحيح:
+    "بناءً على [المصدر: محاضرة الفصل الثاني - PDF] و [المصدر: شرح الدكتور - فيديو]، 
+    القانون الأول ينص على... وفي الملف تم ذكر مثال عملي في الصفحة..."
+    """
+    
+    # Add individual PDF memories
+    pdf_context = ""
+    for name, text in pdf_memories.items():
+        pdf_context += f"\n--- ملف: {name} ---\n{text[:6000]}\n"
+        source_map[name] = {"course": "محتوى فردي", "type": "pdf"}
+    
+    course_data = st.session_state.get("current_course_content", "")
+    
+    # Show knowledge base status
+    total_sources = len(source_map)
+    if total_sources > 0:
+        st.info(f"💡 إيلينا لديها حالياً {total_sources} مصدر في قاعدة المعرفة")
+
+    # 2. 🔥 Enhanced System Prompt with Source Citation 🔥
+    instruction = f"""
+    أنتِ إيلينا، المحللة الأكاديمية الذكية الخاصة بإيثان. لديكِ قاعدة معرفة كاملة من المسح العميق للمواد.
+    
+    📚 قاعدة المعرفة المتاحة:
+    {deep_context}
+    {pdf_context}
+    {course_data[:2000]}
+    
+    🎯 قواعد الإجابة الإلزامية:
+    1. **الاقتباس المباشر**: عند الإجابة، اذكري اسم الملف/الفيديو المصدر بين قوسين [المصدر: اسم الملف]
+    2. **الدقة التامة**: استخرجي القوانين، الأرقام، المسائل، والتعاريف كما وردت بالضبط
+    3. **التنقيب العميق**: ابحثي في كل المصادر المتاحة وقارني المعلومات
+    4. **الأسئلة المتوقعة**: استخرجيها من النقاط الصعبة في النصوص الفعلية، لا تخمني
+    5. **الربط الذكي**: إذا كان السؤال عن موضوع معين، اجمعي المعلومات من كل الملفات ذات الصلة
+    6. **الشفافية**: إذا لم تجدي المعلومة في المصادر المتاحة، قولي ذلك صراحة
+    
+    💬 أسلوب الرد:
+    - ابدأي بذكر المصادر التي استخدمتها
+    - قدمي الإجابة بتفصيل مع الاستشهاد
+    - اختمي بنصيحة عملية أو خطوة تالية
+    
+    مثال على الرد الصحيح:
+    "بناءً على [المصدر: محاضرة الفصل الثاني - PDF] و [المصدر: شرح الدكتور - فيديو]، 
+    القانون الأول ينص على... وفي الملف تم ذكر مثال عملي في الصفحة..."
     """
 
     # 3. عرض الرسايل (Container)
@@ -1196,99 +1496,6 @@ with st.sidebar:
         if st.button("🧹 Clear Cache (Developer Only)", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش بنجاح!")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
