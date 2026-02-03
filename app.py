@@ -5,6 +5,8 @@ import json
 import os
 import io
 import requests
+import sys
+from urllib.parse import urlparse, parse_qs
 from groq import Groq
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -21,8 +23,80 @@ from youtube_transcript_api import YouTubeTranscriptApi
 import time
 import pytz
 
+LOCAL_MODE = os.environ.get("ELENA_LOCAL", "") == "1" or os.name == "nt"
+
+def get_chrome_binary_path():
+    env_path = os.environ.get("CHROME_BINARY")
+    if env_path and os.path.exists(env_path):
+        return env_path
+
+    if os.name == "nt":
+        candidates = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files\Chromium\Application\chrome.exe",
+        ]
+    elif sys.platform == "darwin":
+        candidates = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+        ]
+    else:
+        candidates = [
+            "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome",
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/snap/bin/chromium",
+        ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return path
+    return None
+
+def init_shared_driver():
+    if st.session_state.get("driver") is not None:
+        return st.session_state.driver
+
+    options = Options()
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    options.add_argument('--disable-gpu')
+    options.add_argument('--disable-extensions')
+    options.add_argument('--disable-logging')
+    options.add_argument('--log-level=3')
+
+    chrome_binary = get_chrome_binary_path()
+    chrome_type = ChromeType.CHROMIUM
+    if chrome_binary:
+        options.binary_location = chrome_binary
+        if "chrome" in chrome_binary.lower() and "chromium" not in chrome_binary.lower():
+            chrome_type = ChromeType.GOOGLE
+
+    try:
+        service = Service(ChromeDriverManager(chrome_type=chrome_type).install())
+        st.session_state.driver = webdriver.Chrome(service=service, options=options)
+        st.success("✅ إيلينا متصلة وجاهزة للعمل!")
+    except Exception as e:
+        st.error(f"❌ فشل تشغيل المتصفح: {e}")
+        st.info("نصيحة: تأكد من وجود ملف render-build.sh لو كنت تستخدم Render.")
+        st.session_state.driver = None
+
+    return st.session_state.driver
+
 # إعداد Groq باستخدام الـ Secrets
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY") or st.secrets.get("GROQ_API_KEY")
+def get_groq_api_key():
+    env_key = os.environ.get("GROQ_API_KEY")
+    if env_key:
+        return env_key
+    try:
+        return st.secrets.get("GROQ_API_KEY")
+    except Exception:
+        return None
+
+GROQ_API_KEY = get_groq_api_key() or "<YOUR_GROQ_API_KEY>"
 
 if not GROQ_API_KEY:
     st.error("❌ خطأ: مفتاح GROQ_API_KEY غير موجود في إعدادات السيرفر!")
@@ -34,43 +108,18 @@ cookies = EncryptedCookieManager(prefix="elena/", password="EM2006_secret_key")
 if not cookies.ready():
     st.stop()
 
-if "driver" not in st.session_state:
+if not LOCAL_MODE and "driver" not in st.session_state:
     with st.spinner("جاري تهيئة إيلينا على السيرفر السحابي... 👑"):
-        options = Options()
-        options.add_argument('--headless')
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-extensions')
-        options.add_argument('--disable-logging')
-        options.add_argument('--log-level=3')
-        
-        # Smart path detection (Render vs Streamlit)
-        render_chrome = "/opt/render/project/.render/chrome/opt/google/chrome/google-chrome"
-        streamlit_chrome = "/usr/bin/chromium"
-        
-        if os.path.exists(render_chrome):
-            options.binary_location = render_chrome
-            chrome_type = ChromeType.GOOGLE
-        else:
-            options.binary_location = streamlit_chrome
-            chrome_type = ChromeType.CHROMIUM
-
-        try:
-            service = Service(ChromeDriverManager(chrome_type=chrome_type).install())
-            st.session_state.driver = webdriver.Chrome(service=service, options=options)
-            st.success("✅ إيلينا متصلة وجاهزة للعمل!")
-        except Exception as e:
-            st.error(f"❌ فشل تشغيل المتصفح: {e}")
-            st.info("نصيحة: تأكد من وجود ملف render-build.sh لو كنت تستخدم Render.")
-            st.session_state.driver = None
+        init_shared_driver()
             
 # الجسر لضمان تعريف كلمة driver في كل الملف
 driver = st.session_state.get("driver")
 
 def get_course_content(course_url):
     # نتحقق أولاً هل المتصفح شغال؟
-    if "driver" not in st.session_state:
+    if "driver" not in st.session_state or st.session_state.get("driver") is None:
+        init_shared_driver()
+    if "driver" not in st.session_state or st.session_state.get("driver") is None:
         st.error("⚠️ المتصفح غير جاهز!")
         return []
         
@@ -138,7 +187,7 @@ def get_local_time():
     # بنجيب الوقت الحالي بناءً على المنطقة
     return datetime.now(local_tz)
 # --- 1. إعدادات الصفحة والتصميم ---
-# --- 1. إعداد الصفحة والتصميم (أول شيء في الكود) ---
+# --- 1. إعداد الصفحة والتصميم (أول شيء ��ي الكود) ---
 st.set_page_config(page_title="Elena AI", page_icon="👑", layout="wide")
 
 # --- 2. ستايل الـ CSS المطور ---
@@ -296,16 +345,31 @@ def send_otp(target_email, code):
 def get_youtube_summary(video_url):
     """Extract and summarize YouTube video transcripts."""
     if not video_url:
-        return "❌ الرجاء إدخال رابط فيديو صحيح."
+        return "❌ الرجاء إدخال را��ط فيديو صحيح."
     
     try:
-        # Extract video ID with improved regex patterns
+        # Resolve redirects (Moodle etc.)
+        resolved_url = video_url
+        try:
+            resp = requests.get(video_url, allow_redirects=True, timeout=10)
+            if resp.url:
+                resolved_url = resp.url
+        except Exception:
+            resolved_url = video_url
+
+        # Extract video ID with improved patterns
         video_id = None
-        if "v=" in video_url:
-            video_id = video_url.split("v=")[-1].split("&")[0]
-        elif "youtu.be/" in video_url:
-            video_id = video_url.split("youtu.be/")[-1].split("?")[0]
-        
+        parsed = urlparse(resolved_url)
+
+        if "v=" in resolved_url:
+            video_id = parse_qs(parsed.query).get("v", [None])[0]
+        elif "youtu.be/" in resolved_url:
+            video_id = parsed.path.lstrip("/").split("/")[0]
+        elif "/embed/" in parsed.path:
+            video_id = parsed.path.split("/embed/")[-1].split("/")[0]
+        elif "/shorts/" in parsed.path:
+            video_id = parsed.path.split("/shorts/")[-1].split("/")[0]
+
         if not video_id or len(video_id) != 11:
             return "❌ عذراً، لم أستطع التعرف على رابط الفيديو بشكل صحيح."
 
@@ -361,7 +425,10 @@ def deep_scan_course(username, password, course_url, progress_callback=None):
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--disable-gpu')
     options.add_argument('--window-size=1920,1080')
-    options.binary_location = "/usr/bin/chromium"
+
+    chrome_binary = get_chrome_binary_path()
+    if chrome_binary:
+        options.binary_location = chrome_binary
 
     driver = None
     knowledge_base = {}
@@ -504,7 +571,10 @@ def run_selenium_task(username, password, task_type="timeline", target_url=None)
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--window-size=1920,1080')
-    options.binary_location = "/usr/bin/chromium" 
+
+    chrome_binary = get_chrome_binary_path()
+    if chrome_binary:
+        options.binary_location = chrome_binary
 
     driver = None
     try:
@@ -1132,7 +1202,7 @@ with tabs[2]:
         
 # --- 4. الشات مع إيلينا ---
 with tabs[3]:
-    st.subheader("🤖 إيلينا - المحلل الأكاديمي العميق")
+    st.subheader("🤖 إيلين�� - المحلل الأكاديمي العميق")
     st.caption("مربع الدردشة ثابت في الأسفل لسهولة التواصل")
     
     # Knowledge Base Status Bar
@@ -1239,7 +1309,7 @@ with tabs[3]:
     {course_data[:2000]}
     
     🎯 قواعد الإجابة الإلزامية:
-    1. **الاقتباس المباشر**: عند الإجابة، اذكري اسم الملف/الفيديو المصدر بين قوسين [المصدر: اسم الملف]
+    1. **الاقتباس المباشر**: عند الإجابة، اذكري اسم الملف/الفيديو المصدر ب��ن قوسين [المصدر: اسم الملف]
     2. **الدقة التامة**: استخرجي القوانين، الأرقام، المسائل، والتعاريف كما وردت بالضبط
     3. **التنقيب العميق**: ابحثي في كل المصادر المتاحة وقارني المعلومات
     4. **الأسئلة المتوقعة**: استخرجيها من النقاط الصعبة في النصوص الفعلية، لا تخمني
@@ -1496,13 +1566,3 @@ with st.sidebar:
         if st.button("🧹 Clear Cache (Developer Only)", use_container_width=True):
             st.cache_data.clear()
             st.success("تم مسح الكاش بنجاح!")
-
-
-
-
-
-
-
-
-
-
